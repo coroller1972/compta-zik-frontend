@@ -1,0 +1,25 @@
+.DS_Store
+Thumbs.db
+
+# Git and local tooling metadata
+.git
+.gitignore
+.dockerignore
+.idea
+.vscode
+
+# Dependencies, logs, and generated outputs
+node_modules
+dist
+build
+coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment files should not be baked into the frontend image
+.env
+.env.*
+!.env.example
