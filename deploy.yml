@@ -4,6 +4,9 @@ metadata:
   name: compta-zik-frontend
   labels:
     app: compta-zik-frontend
+spec:
+  lookupPolicy:
+    local: true
 ---
 kind: BuildConfig
 apiVersion: build.openshift.io/v1
