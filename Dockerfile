@@ -12,3 +12,4 @@ RUN sed -i 's|pid /run/nginx.pid;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf \
 
 USER 1001
 EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
