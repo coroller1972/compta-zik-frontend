@@ -1,9 +1,41 @@
+kind: ImageStream
+apiVersion: image.openshift.io/v1
+metadata:
+  name: compta-zik-frontend
+  labels:
+    app: compta-zik-frontend
+---
+kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: compta-zik-frontend
+  labels:
+    app: compta-zik-frontend
+spec:
+  source:
+    type: Git
+    git:
+      uri: https://github.com/coroller1972/compta-zik-frontend.git
+    contextDir: /
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: compta-zik-frontend:latest
+  triggers:
+    - type: ConfigChange
+---
 kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: compta-zik-frontend
   labels:
     app: compta-zik-frontend
+  annotations:
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"compta-zik-frontend:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"compta-zik-frontend\")].image"}]'
 spec:
   replicas: 1
   selector:
@@ -16,7 +48,7 @@ spec:
     spec:
       containers:
         - name: compta-zik-frontend
-          image: compta-zik-frontend:1.0
+          image: compta-zik-frontend:latest
           ports:
             - name: http
               containerPort: 8080
