@@ -232,6 +232,7 @@ const app = createApp({
     const studentInvoiceDocuments = ref([]);
     const studentInvoiceSummaryDocument = ref(null);
     const teacherInvoiceRequestDocuments = ref([]);
+    const selectedImportFile = ref(null);
     const toasts = ref([]);
     const editingMusicianId = ref(null);
     const editingTeacherId = ref(null);
@@ -1202,6 +1203,55 @@ const app = createApp({
       return `Demande de facture: ${fullName(row.teacher)} - ${selectedTerm.value.name} ${state.settings.year} - ${row.individualHours.toFixed(2)} h cours + ${row.workshopHours.toFixed(2)} h groupes - Total ${money(row.totalDue)}`;
     }
 
+    async function exportData() {
+      try {
+        const response = await fetch(`${apiBase.value}/data/export`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status} ${errorText}`);
+        }
+        const payload = await response.json();
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const stamp = new Date().toISOString().slice(0, 10);
+        link.href = url;
+        link.download = `compta-zik-export-${stamp}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+        apiStatus.value = "connecté";
+        showToast("Export JSON généré", "success");
+      } catch (error) {
+        console.warn("API GET data/export failed", error);
+        apiStatus.value = "mode demo";
+        showToast("Export JSON indisponible côté backend", "warning");
+      }
+    }
+
+    function selectImportFile(event) {
+      selectedImportFile.value = event.target.files?.[0] || null;
+    }
+
+    async function importData() {
+      if (!selectedImportFile.value) return;
+      const confirmed = window.confirm("L'import remplace les données métier du serveur cible. Continuer ?");
+      if (!confirmed) return;
+      try {
+        const payload = JSON.parse(await selectedImportFile.value.text());
+        const result = await requestResource("POST", "data/import", payload, {
+          successMessage: "Import JSON terminé",
+          errorMessage: "Import JSON refusé côté backend",
+        });
+        if (result) {
+          await loadFromApi();
+          selectedImportFile.value = null;
+        }
+      } catch (error) {
+        console.warn("Import JSON failed", error);
+        showToast("Fichier JSON invalide", "error");
+      }
+    }
+
     selectGroup(selectedGroupId.value);
     loadFromApi();
 
@@ -1227,6 +1277,7 @@ const app = createApp({
       studentInvoiceDocuments,
       studentInvoiceSummaryDocument,
       teacherInvoiceRequestDocuments,
+      selectedImportFile,
       musicianForm,
       teacherForm,
       groupForm,
@@ -1311,6 +1362,9 @@ const app = createApp({
       signatureWeekDate,
       signatureWeekNumber,
       printPage,
+      exportData,
+      selectImportFile,
+      importData,
     };
   },
   template: `
@@ -1331,6 +1385,7 @@ const app = createApp({
           <button :class="{ active: activeView === 'groups' }" @click="activeView = 'groups'">Groupes</button>
           <button :class="{ active: activeView === 'expenses' }" @click="activeView = 'expenses'">Dépenses</button>
           <button :class="{ active: activeView === 'billing' }" @click="activeView = 'billing'">Facturation</button>
+          <button :class="{ active: activeView === 'data-transfer' }" @click="activeView = 'data-transfer'">Import / Export</button>
           <button :class="{ active: activeView === 'settings' }" @click="activeView = 'settings'">Configuration</button>
         </nav>
         <div class="api-box">
@@ -2018,6 +2073,34 @@ const app = createApp({
                 </div>
               </article>
             </div>
+          </section>
+        </section>
+
+        <section v-if="activeView === 'data-transfer'" class="view-stack">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Export JSON</h2>
+                <span>Données métier du service, hors fichiers PDF générés</span>
+              </div>
+              <button class="primary-button" @click="exportData">Exporter</button>
+            </div>
+            <p class="muted">Le fichier contient la configuration annuelle, les professeurs, musiciens, groupes, créneaux individuels et présences.</p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Import JSON</h2>
+                <span>Restauration complète sur le serveur cible</span>
+              </div>
+              <button class="danger-button" @click="importData" :disabled="!selectedImportFile">Importer</button>
+            </div>
+            <div class="api-form">
+              <input type="file" accept="application/json,.json" @change="selectImportFile" />
+            </div>
+            <p class="form-warning">L'import remplace les données métier existantes du serveur cible. Les factures PDF devront être régénérées après import.</p>
+            <p v-if="selectedImportFile" class="success-note">Fichier sélectionné: {{ selectedImportFile.name }}</p>
           </section>
         </section>
 
