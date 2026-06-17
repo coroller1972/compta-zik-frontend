@@ -220,6 +220,7 @@ const app = createApp({
     const selectedTermId = ref("t1");
     const activeView = ref("dashboard");
     const apiStatus = ref("mode demo");
+    const currentUser = ref(null);
     const apiBase = ref(API_BASE);
     const accountingYearInput = ref(state.settings.year);
     const search = ref("");
@@ -412,6 +413,18 @@ const app = createApp({
         .filter((expense) => expense.category === category.value)
         .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0),
     })).filter((category) => category.total > 0));
+
+    const currentUserLabel = computed(() => {
+      if (apiStatus.value !== "connecté") return "Utilisateur non connecté";
+      if (!currentUser.value?.authenticated) return "Utilisateur non identifié";
+      return currentUser.value.displayName || currentUser.value.username || "Utilisateur connecté";
+    });
+
+    const currentUserDetail = computed(() => {
+      if (apiStatus.value !== "connecté") return "";
+      if (!currentUser.value?.authenticated) return "Proxy d'authentification absent";
+      return currentUser.value.email || currentUser.value.username || "";
+    });
 
     const billableStudentRows = computed(() => studentBillingRows.value.filter((item) => item.totalDue > 0));
 
@@ -1176,10 +1189,23 @@ const app = createApp({
         accountingYearInput.value = state.settings.year;
         resetFormsAfterStateLoad();
         apiStatus.value = "connecté";
+        await loadCurrentUser();
         showToast(`Année ${state.settings.year} chargée`, "success");
       } catch {
         apiStatus.value = "mode demo";
+        currentUser.value = null;
         showToast("Backend indisponible, mode démo actif", "warning");
+      }
+    }
+
+    async function loadCurrentUser() {
+      try {
+        const response = await fetch(`${apiBase.value}/auth/me`);
+        if (!response.ok) throw new Error("Utilisateur indisponible");
+        currentUser.value = await response.json();
+      } catch (error) {
+        console.warn("API GET auth/me failed", error);
+        currentUser.value = { authenticated: false };
       }
     }
 
@@ -1266,6 +1292,8 @@ const app = createApp({
       apiBase,
       accountingYearInput,
       apiStatus,
+      currentUserLabel,
+      currentUserDetail,
       search,
       groupSearch,
       selectedGroupId,
@@ -1389,8 +1417,14 @@ const app = createApp({
           <button :class="{ active: activeView === 'settings' }" @click="activeView = 'settings'">Configuration</button>
         </nav>
         <div class="api-box">
-          <span :class="['status', apiStatus === 'connecté' ? 'ok' : 'demo']"></span>
-          <span>{{ apiStatus }}</span>
+          <div class="api-status-line">
+            <span :class="['status', apiStatus === 'connecté' ? 'ok' : 'demo']"></span>
+            <span>{{ apiStatus }}</span>
+          </div>
+          <div class="user-box">
+            <span>{{ currentUserLabel }}</span>
+            <small v-if="currentUserDetail">{{ currentUserDetail }}</small>
+          </div>
         </div>
       </aside>
 

@@ -103,11 +103,27 @@ select:disabled {
 
 .api-box {
   margin-top: auto;
-  display: flex;
-  align-items: center;
+  display: grid;
   gap: 8px;
   color: #dce5ee;
   font-size: 14px;
+}
+
+.api-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-box {
+  display: grid;
+  gap: 2px;
+  padding-left: 18px;
+}
+
+.user-box small {
+  color: #c9d3df;
+  overflow-wrap: anywhere;
 }
 
 .status {
