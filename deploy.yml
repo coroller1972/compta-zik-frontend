@@ -86,9 +86,11 @@ metadata:
   labels:
     app: compta-zik-frontend
 spec:
+  host: compta-zik-frontend-ui-core.apps.dev-app-hub.0k6e.p1.openshiftapps.com
   to:
     kind: Service
     name: compta-zik-frontend-svc
+  path: /
   port:
     targetPort: http-80
   tls:
