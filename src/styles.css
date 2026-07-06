@@ -442,6 +442,10 @@ input {
   padding: 18px;
 }
 
+#musician-editor-panel {
+  scroll-margin-top: 24px;
+}
+
 .panel-head {
   display: flex;
   justify-content: space-between;

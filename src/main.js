@@ -1,4 +1,4 @@
-import { createApp, computed, reactive, ref } from "./vendor/vue.esm-browser.prod.js";
+import { createApp, computed, nextTick, reactive, ref } from "./vendor/vue.esm-browser.prod.js";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -380,6 +380,10 @@ const app = createApp({
       if (!q) return musicians;
       return musicians.filter((musician) => fullName(musician).toLowerCase().includes(q));
     });
+    const activeMusicianCountLabel = computed(() => {
+      const count = activeMusicians.value.length;
+      return `${count} musicien${count > 1 ? "s" : ""} actif${count > 1 ? "s" : ""}`;
+    });
 
     const selectedGroup = computed(() => state.bands.find((band) => band.id === selectedGroupId.value) || state.bands[0]);
 
@@ -524,6 +528,20 @@ const app = createApp({
         .join("") || "?";
     });
     const mustChangePassword = computed(() => Boolean(currentUser.value?.mustChangePassword));
+    const pageTitle = computed(() => {
+      const labels = {
+        expenses: `Dépenses ${state.settings.year}`,
+        account: "Compte utilisateur",
+        people: "Musiciens",
+        slots: "Créneaux individuels",
+        groups: "Groupes",
+        settings: "Configuration",
+        billing: "Facturation",
+        signatures: "Émargement",
+        "data-transfer": "Import / Export",
+      };
+      return labels[activeView.value] || selectedTerm.value?.name || "";
+    });
 
     function can(permission) {
       const roles = currentUser.value?.roles || [];
@@ -870,6 +888,9 @@ const app = createApp({
       });
       musicianBandToAddId.value = musicianAvailableBands.value[0]?.id || "";
       activeView.value = "people";
+      nextTick(() => {
+        document.getElementById("musician-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     }
 
     function addMusicianBand() {
@@ -1298,6 +1319,7 @@ const app = createApp({
       if (configured?.label) return configured.label;
       const labels = {
         ADMINISTRATOR: "Administrateur",
+        MANAGER: "Gestionnaire",
         OBSERVER: "Observateur",
         USER_CREATE: "Création utilisateur",
         USER_UPDATE: "Mise à jour utilisateur",
@@ -2090,6 +2112,7 @@ const app = createApp({
       currentUserLabel,
       currentUserDetail,
       currentUserInitials,
+      pageTitle,
       openAccountView,
       search,
       groupSearch,
@@ -2120,6 +2143,7 @@ const app = createApp({
       timeSlots,
       scheduleRows,
       musicianRows,
+      activeMusicianCountLabel,
       billableStudentRows,
       attendanceCourseRows,
       attendanceWorkshopRows,
@@ -2399,6 +2423,7 @@ const app = createApp({
           <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'attendance' }" @click="activeView = 'attendance'">Présences</button>
           <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'signatures' }" @click="activeView = 'signatures'">Émargement</button>
           <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" :class="{ active: activeView === 'people' }" @click="activeView = 'people'">Musiciens</button>
+          <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" :class="{ active: activeView === 'slots' }" @click="activeView = 'slots'">Créneaux</button>
           <button v-if="!mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" :class="{ active: activeView === 'groups' }" @click="activeView = 'groups'">Groupes</button>
           <button v-if="!mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" :class="{ active: activeView === 'expenses' }" @click="activeView = 'expenses'">Dépenses</button>
           <button v-if="!mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" :class="{ active: activeView === 'billing' }" @click="activeView = 'billing'">Facturation</button>
@@ -2428,7 +2453,7 @@ const app = createApp({
         <header class="topbar">
           <div>
             <p class="eyebrow">Comptabilité activité musique</p>
-            <h1>{{ activeView === 'expenses' ? 'Dépenses ' + state.settings.year : activeView === 'account' ? 'Compte utilisateur' : selectedTerm.name }}</h1>
+            <h1>{{ pageTitle }}</h1>
           </div>
           <div class="term-control">
             <label for="term">Période</label>
@@ -2661,11 +2686,43 @@ const app = createApp({
           </section>
         </section>
 
-        <section v-if="activeView === 'people' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="view-stack">
-          <section v-if="can('MUSICIENS_WRITE')" class="panel">
+        <section v-if="activeView === 'slots' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="view-stack">
+          <section class="panel">
             <div class="panel-head">
               <div>
-                <h2>{{ editingMusicianId ? 'Modifier un musicien' : 'Créer un musicien' }}</h2>
+                <h2>Créneaux individuels</h2>
+                <span>Demi-heures entre 11h30-14h00 et 16h30-18h00</span>
+              </div>
+            </div>
+            <div class="slot-planning">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Heure</th>
+                    <th v-for="day in WEEKDAYS" :key="day">{{ day }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in scheduleRows" :key="row.slot">
+                    <th scope="row">{{ row.slot }}</th>
+                    <td v-for="slot in row.days" :key="slot.key" :class="{ occupied: slot.courses.length }">
+                      <strong v-if="slot.musicians.length">{{ slot.musicians.map(fullName).join(', ') }}</strong>
+                      <span v-else class="muted">Libre</span>
+                      <small v-if="slot.teachers.length">{{ slot.teachers.map(fullName).join(', ') }}{{ slot.sharedSlot ? ' - partagé' : '' }}</small>
+                      <small v-else>Salle libre</small>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section v-if="activeView === 'people' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="view-stack">
+          <section v-if="can('MUSICIENS_WRITE')" id="musician-editor-panel" class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>{{ editingMusicianId ? 'Éditer un musicien' : 'Créer un musicien' }}</h2>
                 <span>Groupes multiples et cours individuel optionnel</span>
               </div>
               <button class="ghost-button" @click="resetMusicianForm">Nouveau</button>
@@ -2764,8 +2821,11 @@ const app = createApp({
           </section>
 
           <section class="panel">
-            <div class="panel-head">
-              <h2>Musiciens</h2>
+            <div class="panel-head musicians-head">
+              <div>
+                <h2>Musiciens</h2>
+                <span>{{ activeMusicianCountLabel }}</span>
+              </div>
               <input v-model="search" class="search" placeholder="Rechercher un musicien" />
             </div>
             <table>
@@ -2801,36 +2861,6 @@ const app = createApp({
                 </tr>
               </tbody>
             </table>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Créneaux individuels</h2>
-                <span>Demi-heures entre 11h30-14h00 et 16h30-18h00</span>
-              </div>
-            </div>
-            <div class="slot-planning">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Heure</th>
-                    <th v-for="day in WEEKDAYS" :key="day">{{ day }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in scheduleRows" :key="row.slot">
-                    <th scope="row">{{ row.slot }}</th>
-                    <td v-for="slot in row.days" :key="slot.key" :class="{ occupied: slot.courses.length }">
-                      <strong v-if="slot.musicians.length">{{ slot.musicians.map(fullName).join(', ') }}</strong>
-                      <span v-else class="muted">Libre</span>
-                      <small v-if="slot.teachers.length">{{ slot.teachers.map(fullName).join(', ') }}{{ slot.sharedSlot ? ' - partagé' : '' }}</small>
-                      <small v-else>Salle libre</small>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
           </section>
         </section>
 
