@@ -1,0 +1,42 @@
+@font-face {
+  font-family: "Phosphor";
+  src: url("./phosphor-regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+.ph {
+  font-family: "Phosphor" !important;
+  speak: never;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+  letter-spacing: 0;
+  font-feature-settings: "liga";
+  font-variant-ligatures: discretionary-ligatures;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.ph.ph-chart-bar::before {
+  content: "\e150";
+}
+
+.ph.ph-guitar::before {
+  content: "\ea8a";
+}
+
+.ph.ph-microphone-stage::before {
+  content: "\e75c";
+}
+
+.ph.ph-users-three::before {
+  content: "\e68e";
+}
+
+.ph.ph-waveform::before {
+  content: "\e802";
+}

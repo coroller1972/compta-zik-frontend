@@ -269,6 +269,7 @@ const app = createApp({
     const currentUserAvatarUrl = ref("");
     const avatarFile = ref(null);
     const authUsers = ref([]);
+    const authUserAvatarUrls = reactive({});
     const authRoles = ref([]);
     const authUsersPage = ref({ total: 0, limit: 50, offset: 0 });
     const authUserSearch = ref("");
@@ -527,6 +528,23 @@ const app = createApp({
         .map((part) => part[0]?.toUpperCase())
         .join("") || "?";
     });
+
+    function authUserInitials(user) {
+      const source = user?.displayName || user?.username || "?";
+      return source
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase())
+        .join("") || "?";
+    }
+
+    function authUserAvatarUrl(user) {
+      if (user?.id && user.id === currentUser.value?.id && currentUserAvatarUrl.value) {
+        return currentUserAvatarUrl.value;
+      }
+      return user?.id ? authUserAvatarUrls[user.id] || "" : "";
+    }
     const mustChangePassword = computed(() => Boolean(currentUser.value?.mustChangePassword));
     const pageTitle = computed(() => {
       const labels = {
@@ -1427,8 +1445,16 @@ const app = createApp({
       }
     }
 
+    function revokeAuthUserAvatarUrls() {
+      Object.entries(authUserAvatarUrls).forEach(([userId, avatarUrl]) => {
+        if (avatarUrl) URL.revokeObjectURL(avatarUrl);
+        delete authUserAvatarUrls[userId];
+      });
+    }
+
     function clearAuthSession() {
       revokeCurrentAvatarUrl();
+      revokeAuthUserAvatarUrls();
       authSession.value = null;
       currentUser.value = null;
       authUsers.value = [];
@@ -1739,10 +1765,33 @@ const app = createApp({
           ...(payload.page || { limit: 50, offset: 0 }),
           total: authUsers.value.length,
         };
+        await loadAuthUserAvatars(authUsers.value);
       } catch (error) {
         console.warn("API GET auth/users failed", error);
+        revokeAuthUserAvatarUrls();
+        authUsers.value = currentUser.value ? [currentUser.value] : [];
+        authUsersPage.value = { total: authUsers.value.length, limit: 50, offset: 0 };
         showToast("Utilisateurs non chargés", "warning");
       }
+    }
+
+    async function loadAuthUserAvatars(users) {
+      revokeAuthUserAvatarUrls();
+      const usersWithAvatar = (users || []).filter((user) => (
+        user?.id
+        && user.id !== currentUser.value?.id
+        && user.avatar?.url
+      ));
+      await Promise.all(usersWithAvatar.map(async (user) => {
+        try {
+          const avatarResource = String(user.avatar.url).replace(/^\/api\/+/, "");
+          const response = await apiFetch(avatarResource);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          authUserAvatarUrls[user.id] = URL.createObjectURL(await response.blob());
+        } catch (error) {
+          console.warn(`API GET avatar for user ${user.id} failed`, error);
+        }
+      }));
     }
 
     async function loadAuthRoles() {
@@ -2097,6 +2146,7 @@ const app = createApp({
       authUserEditForm,
       editingAuthUserId,
       authUsers,
+      authUserAvatarUrls,
       authRoles,
       visibleAuthRoles,
       authUsersPage,
@@ -2112,6 +2162,8 @@ const app = createApp({
       currentUserLabel,
       currentUserDetail,
       currentUserInitials,
+      authUserInitials,
+      authUserAvatarUrl,
       pageTitle,
       openAccountView,
       search,
@@ -2455,13 +2507,22 @@ const app = createApp({
             <p class="eyebrow">Comptabilité activité musique</p>
             <h1>{{ pageTitle }}</h1>
           </div>
-          <div class="term-control">
-            <label for="term">Période</label>
-            <select id="term" v-model="selectedTermId">
-              <option v-for="term in state.settings.terms" :key="term.id" :value="term.id">
-                {{ term.name }} - semaines {{ term.startWeek }} à {{ term.endWeek }}
-              </option>
-            </select>
+          <div class="topbar-actions">
+            <div class="term-control">
+              <label for="term">Période</label>
+              <select id="term" v-model="selectedTermId">
+                <option v-for="term in state.settings.terms" :key="term.id" :value="term.id">
+                  {{ term.name }} - semaines {{ term.startWeek }} à {{ term.endWeek }}
+                </option>
+              </select>
+            </div>
+            <button
+              v-if="activeView === 'dashboard' && canAny(['BILLING_READ', 'BILLING_PRINT'])"
+              class="primary-button billing-review-button"
+              @click="activeView = 'billing'"
+            >
+              Préparer la facturation
+            </button>
           </div>
         </header>
 
@@ -2471,26 +2532,31 @@ const app = createApp({
               <span>À facturer élèves</span>
               <strong>{{ money(totals.studentBilling + totals.groupFees) }}</strong>
               <small>Cours + cotisations groupe</small>
+              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
             <article class="kpi">
               <span>Dû professeurs</span>
               <strong>{{ money(totals.teacherDue) }}</strong>
               <small>Cours individuels + groupes encadrés</small>
+              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
             <article class="kpi">
               <span>Cotisations groupe</span>
               <strong>{{ money(totals.groupFees) }}</strong>
               <small>Dédupliquées par musicien</small>
+              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
             <article class="kpi">
               <span>Dépenses annuelles</span>
               <strong>{{ money(totals.annualExpenses) }}</strong>
               <small>Budget activité musique</small>
+              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
             <article class="kpi emphasis">
               <span>Subvention estimée</span>
               <strong>{{ money(totals.subsidy) }}</strong>
               <small>Dû profs - 50% cours - cotisations</small>
+              <img class="kpi-signal" src="/src/assets/kpi-waveform-green.png" alt="" aria-hidden="true" />
             </article>
           </div>
 
@@ -2530,9 +2596,14 @@ const app = createApp({
               </div>
               <div class="group-list">
                 <article v-for="band in state.bands" :key="band.id" class="group-row">
-                  <div>
-                    <strong>{{ band.name }}</strong>
-                    <small>{{ band.type === 'workshop' ? 'Groupe de travail encadré' : 'Groupe musical indépendant' }}</small>
+                  <div class="group-identity">
+                    <span class="group-icon" aria-hidden="true">
+                      <i :class="['ph', band.type === 'workshop' ? 'ph-microphone-stage' : 'ph-guitar']"></i>
+                    </span>
+                    <div class="group-copy">
+                      <strong>{{ band.name }}</strong>
+                      <small>{{ band.type === 'workshop' ? 'Groupe de travail encadré' : 'Groupe musical indépendant' }}</small>
+                    </div>
                   </div>
                   <span>{{ memberCount(band) }} membres</span>
                 </article>
@@ -2952,16 +3023,18 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'expenses' && !mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" class="view-stack">
-          <div class="kpi-grid">
+          <div class="kpi-grid expense-kpi-grid">
             <article class="kpi">
               <span>Total annuel</span>
               <strong>{{ money(totals.annualExpenses) }}</strong>
               <small>{{ state.settings.year }}</small>
+              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
             <article v-for="category in expenseTotalsByCategory" :key="category.value" class="kpi">
               <span>{{ category.label }}</span>
               <strong>{{ money(category.total) }}</strong>
               <small>Dépenses saisies</small>
+              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
           </div>
 
@@ -3423,8 +3496,16 @@ const app = createApp({
                 <tbody>
                   <tr v-for="user in authUsers" :key="user.id">
                     <td>
-                      <strong>{{ user.displayName || user.username }}</strong>
-                      <small class="muted">{{ user.username }}</small>
+                      <div class="auth-user-identity">
+                        <span class="auth-user-avatar" aria-hidden="true">
+                          <img v-if="authUserAvatarUrl(user)" :src="authUserAvatarUrl(user)" alt="" />
+                          <span v-else>{{ authUserInitials(user) }}</span>
+                        </span>
+                        <span class="auth-user-copy">
+                          <strong>{{ user.displayName || user.username }}</strong>
+                          <small class="muted">{{ user.username }}</small>
+                        </span>
+                      </div>
                     </td>
                     <td>{{ user.email }}</td>
                     <td>
