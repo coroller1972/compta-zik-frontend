@@ -287,6 +287,7 @@ const app = createApp({
     const generatedTemporaryPassword = ref("");
     const toasts = ref([]);
     const auditEvents = ref([]);
+    const savingAttendanceKeys = reactive(new Set());
     const attendanceTeacherFilterId = ref("");
     const editingMusicianId = ref(null);
     const editingTeacherId = ref(null);
@@ -846,28 +847,43 @@ const app = createApp({
       await loadBillingSummary();
     }
 
-    function toggleAttendance(entityType, entityId, week) {
+    function attendanceSaveKey(entityType, entityId, week) {
+      return `${selectedTerm.value?.id}:${entityType}:${entityId}:${week}`;
+    }
+
+    function isAttendanceSaving(entityType, entityId, week) {
+      return savingAttendanceKeys.has(attendanceSaveKey(entityType, entityId, week));
+    }
+
+    async function toggleAttendance(entityType, entityId, week) {
       if (!can("PRESENCE_WRITE")) return;
       if (!ensureYearNotClosed("Les présences sont verrouillées")) return;
+      const saveKey = attendanceSaveKey(entityType, entityId, week);
+      if (savingAttendanceKeys.has(saveKey)) return;
+      savingAttendanceKeys.add(saveKey);
       const existing = attendanceFor(entityType, entityId, week);
-      if (existing) {
-        existing.status = { PRESENT: "ABSENT", ABSENT: "CANCELLED", CANCELLED: "PRESENT" }[existing.status] || "PRESENT";
-        existing.present = existing.status === "PRESENT";
-        saveAttendance(existing);
-        return;
+      try {
+        if (existing) {
+          existing.status = { PRESENT: "ABSENT", ABSENT: "CANCELLED", CANCELLED: "PRESENT" }[existing.status] || "PRESENT";
+          existing.present = existing.status === "PRESENT";
+          await saveAttendance(existing);
+          return;
+        }
+        const entry = {
+          id: createId(),
+          termId: selectedTerm.value.id,
+          week,
+          entityType,
+          entityId,
+          present: true,
+          status: "PRESENT",
+          sessionDate: scheduledSessionDate(entityType, entityId, week),
+        };
+        state.attendance.push(entry);
+        await saveAttendance(entry);
+      } finally {
+        savingAttendanceKeys.delete(saveKey);
       }
-      const entry = {
-        id: createId(),
-        termId: selectedTerm.value.id,
-        week,
-        entityType,
-        entityId,
-        present: true,
-        status: "PRESENT",
-        sessionDate: scheduledSessionDate(entityType, entityId, week),
-      };
-      state.attendance.push(entry);
-      saveAttendance(entry);
     }
 
     function resetMusicianForm() {
@@ -2556,6 +2572,7 @@ const app = createApp({
       attendanceStatus,
       attendanceSymbol,
       attendanceDateLabel,
+      isAttendanceSaving,
       toggleAttendance,
       isHolidayWeek,
       addHolidayWeek,
@@ -3005,7 +3022,7 @@ const app = createApp({
                       <button
                         :class="['attendance-state', attendanceStatus('individualCourse', row.course.id, week).toLowerCase()]"
                         @click="toggleAttendance('individualCourse', row.course.id, week)"
-                        :disabled="!can('PRESENCE_WRITE')"
+                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('individualCourse', row.course.id, week)"
                         :aria-label="'Présence ' + fullName(row.musician) + ' semaine ' + week + ' : ' + attendanceStatus('individualCourse', row.course.id, week)"
                         :title="attendanceStatus('individualCourse', row.course.id, week)"
                       >
@@ -3050,7 +3067,7 @@ const app = createApp({
                       <button
                         :class="['attendance-state', attendanceStatus('workshop', row.band.id, week).toLowerCase()]"
                         @click="toggleAttendance('workshop', row.band.id, week)"
-                        :disabled="!can('PRESENCE_WRITE')"
+                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('workshop', row.band.id, week)"
                         :aria-label="'Séance ' + row.band.name + ' semaine ' + week + ' : ' + attendanceStatus('workshop', row.band.id, week)"
                         :title="attendanceStatus('workshop', row.band.id, week)"
                       >
