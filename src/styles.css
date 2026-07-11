@@ -68,6 +68,70 @@ select:disabled {
   padding: 28px;
 }
 
+.billing-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid rgba(15, 93, 104, 0.24);
+  border-radius: 10px;
+  background: #edf6f4;
+  color: #123f49;
+  font-weight: 700;
+}
+
+.billing-state.error {
+  border-color: rgba(183, 77, 56, 0.3);
+  background: #fff3ef;
+  color: #8d3525;
+}
+
+.billing-state .ghost-button {
+  flex: 0 0 auto;
+}
+
+.lifecycle-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-left: 4px solid #d97941;
+}
+
+.lifecycle-panel h2,
+.lifecycle-panel p {
+  margin: 4px 0 0;
+}
+
+.lifecycle-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-pill.closed {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #efe8e4;
+  color: #813728;
+  font-weight: 800;
+}
+
+@media (max-width: 700px) {
+  .lifecycle-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lifecycle-actions,
+  .lifecycle-actions button {
+    width: 100%;
+  }
+}
+
 .login-panel.password-change-panel {
   width: min(680px, 100%);
 }
@@ -603,6 +667,103 @@ td small {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
+}
+
+.session-date-label {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.attendance-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attendance-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.attendance-teacher-filter {
+  display: grid;
+  min-width: min(280px, 100%);
+  gap: 6px;
+}
+
+.attendance-teacher-filter span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.attendance-teacher-filter select {
+  min-height: 42px;
+}
+
+.archived-musicians-panel {
+  border-color: #cbd5e1;
+  background: linear-gradient(145deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.9));
+}
+
+.action-button.restore {
+  color: var(--navy);
+}
+
+@media (max-width: 760px) {
+  .attendance-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.attendance-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend-dot {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font-style: normal;
+}
+
+.legend-dot.present { background: var(--accent); border-color: var(--accent); color: #fff; }
+.legend-dot.absent { background: #f1f5f9; color: #64748b; }
+.legend-dot.cancelled { background: #fff7ed; border-color: #fdba74; color: #c2410c; }
+
+.presence-cell button.attendance-state.absent {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.presence-cell button.attendance-state.cancelled {
+  border-color: #fdba74;
+  background: #fff7ed;
+  color: #c2410c;
 }
 
 .presence-cell.holiday button {
@@ -2026,6 +2187,68 @@ input:focus {
 .billing-row button:hover,
 .api-form button:hover {
   background: var(--action-hover);
+}
+
+.danger-outline-button {
+  min-height: 42px;
+  border: 1px solid #c2410c;
+  border-radius: 7px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-weight: 750;
+}
+
+.danger-outline-button:hover:not(:disabled) {
+  background: #ffedd5;
+}
+
+.document-workflow-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border: 1px solid #fed7aa;
+  border-radius: 9px;
+  background: #fffaf3;
+  color: #7c2d12;
+  font-size: 12px;
+}
+
+.document-workflow-note span { color: #78716c; }
+.document-workflow-note i { color: #ea580c; font-size: 18px; }
+
+.import-analysis {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #86efac;
+  border-radius: 9px;
+  background: #f0fdf4;
+}
+
+.import-analysis.invalid { border-color: #fca5a5; background: #fef2f2; }
+.import-analysis-head { display: flex; justify-content: space-between; gap: 12px; }
+.import-analysis-head span { color: var(--muted); }
+.import-errors { margin: 12px 0 0; color: #b91c1c; }
+.import-impact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.import-impact-grid article { padding: 13px; border: 1px solid #d1d5db; border-radius: 7px; background: #fff; }
+.import-impact-grid span, .import-impact-grid strong { display: block; }
+.import-impact-grid span { margin-bottom: 5px; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.import-confirmation { display: grid; gap: 10px; margin-top: 16px; }
+.import-confirmation code { color: #9a3412; font-weight: 800; }
+.import-confirmation small { color: var(--muted); }
+
+.document-row-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.document-row-actions button { padding: 5px 7px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--action); font-size: 10px; font-weight: 750; }
+.document-row-actions button:hover { border-color: var(--action); background: var(--action-soft); }
+.document-history-list { display: grid; gap: 8px; }
+.document-history-list article { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; }
+.document-history-list strong, .document-history-list span { display: block; }
+.document-history-list span { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 700px) {
+  .document-workflow-note { align-items: flex-start; flex-direction: column; }
+  .document-workflow-note i { transform: rotate(90deg); }
+  .import-impact-grid { grid-template-columns: 1fr; }
 }
 
 .primary-button:focus-visible,

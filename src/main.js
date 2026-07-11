@@ -1,4 +1,4 @@
-import { createApp, computed, nextTick, reactive, ref } from "./vendor/vue.esm-browser.prod.js";
+import { createApp, computed, nextTick, reactive, ref, watch } from "./vendor/vue.esm-browser.prod.js";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -39,6 +39,8 @@ const demoState = {
     year: ACCOUNTING_YEAR,
     teacherHourlyRate: DEFAULT_TEACHER_HOURLY_RATE,
     groupMembershipFee: DEFAULT_GROUP_MEMBERSHIP_FEE,
+    individualCourseHours: COURSE_DURATION_HOURS,
+    workshopHours: WORKSHOP_DURATION_HOURS,
     schoolHolidayWeeks: [8, 9],
     terms: [
       { id: "t1", name: "Trimestre 1", startWeek: 2, endWeek: 14 },
@@ -125,14 +127,8 @@ function createId(prefix = "local") {
 }
 
 function loadStoredAuthSession() {
-  try {
-    const session = JSON.parse(localStorage.getItem(AUTH_SESSION_STORAGE_KEY) || "null");
-    if (!session?.accessToken || !session?.refreshToken) return null;
-    return session;
-  } catch {
-    localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
-    return null;
-  }
+  localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  return null;
 }
 
 function normalizeAuthUser(user) {
@@ -153,6 +149,8 @@ function normalizeSnapshot(snapshot) {
       ...settings,
       teacherHourlyRate: Number(settings.teacherHourlyRate) || DEFAULT_TEACHER_HOURLY_RATE,
       groupMembershipFee: Number(settings.groupMembershipFee) || DEFAULT_GROUP_MEMBERSHIP_FEE,
+      individualCourseHours: Number(settings.individualCourseHours) || COURSE_DURATION_HOURS,
+      workshopHours: Number(settings.workshopHours) || WORKSHOP_DURATION_HOURS,
       schoolHolidayWeeks: settings.schoolHolidayWeeks || [],
       terms: settings.terms || [],
     },
@@ -167,6 +165,7 @@ function normalizeSnapshot(snapshot) {
     attendance: (snapshot.attendance || []).map((entry) => ({
       ...entry,
       entityType: apiAttendanceTypeToUi(entry.entityType),
+      status: entry.status || (entry.present ? "PRESENT" : "ABSENT"),
     })),
     expenses: (snapshot.expenses || []).map((expense) => ({ notes: "", ...expense, amount: Number(expense.amount) || 0 })),
   };
@@ -177,13 +176,16 @@ function toApiPayload(resource, body) {
   if (resource.startsWith("bands") && Object.hasOwn(body, "type")) {
     return { ...body, type: uiBandTypeToApi(body.type) };
   }
-  if (resource === "attendance") {
-    return {
+    if (resource === "attendance") {
+      return {
+        version: body.version,
       termId: body.termId,
       week: body.week,
       entityType: uiAttendanceTypeToApi(body.entityType),
       entityId: body.entityId,
-      present: body.present,
+      present: body.status === "PRESENT",
+      status: body.status,
+      sessionDate: body.sessionDate,
     };
   }
   return body;
@@ -255,6 +257,7 @@ const app = createApp({
       rememberMe: true,
     });
     const accountingYearInput = ref(state.settings.year);
+    const copySourceYear = ref(state.settings.year - 1);
     const search = ref("");
     const groupSearch = ref("");
     const selectedGroupId = ref("band-1");
@@ -265,7 +268,15 @@ const app = createApp({
     const studentInvoiceDocuments = ref([]);
     const studentInvoiceSummaryDocument = ref(null);
     const teacherInvoiceRequestDocuments = ref([]);
+    const documentHistory = ref([]);
+    const billingSummary = ref(null);
+    const billingStatus = ref("idle");
+    const billingError = ref("");
+    let billingRequestSequence = 0;
     const selectedImportFile = ref(null);
+    const importPayload = ref(null);
+    const importAnalysis = ref(null);
+    const importConfirmation = ref("");
     const currentUserAvatarUrl = ref("");
     const avatarFile = ref(null);
     const authUsers = ref([]);
@@ -275,6 +286,8 @@ const app = createApp({
     const authUserSearch = ref("");
     const generatedTemporaryPassword = ref("");
     const toasts = ref([]);
+    const auditEvents = ref([]);
+    const attendanceTeacherFilterId = ref("");
     const editingMusicianId = ref(null);
     const editingTeacherId = ref(null);
     const editingExpenseId = ref(null);
@@ -345,6 +358,14 @@ const app = createApp({
     });
 
     const selectedTerm = computed(() => state.settings.terms.find((term) => term.id === selectedTermId.value) || state.settings.terms[0]);
+    const yearStatus = computed(() => state.settings.status || "OPEN");
+    const structureLocked = computed(() => yearStatus.value !== "OPEN");
+    const yearClosed = computed(() => yearStatus.value === "CLOSED");
+    const yearStatusLabel = computed(() => ({
+      OPEN: "Ouverte",
+      REVIEWED: "En revue",
+      CLOSED: "Clôturée",
+    })[yearStatus.value] || yearStatus.value);
     const isFirstTerm = computed(() => selectedTerm.value?.id === state.settings.terms[0]?.id);
     const weeks = computed(() => weeksForTerm(selectedTerm.value));
     const allYearWeeks = computed(() => Array.from({ length: 53 }, (_, index) => index + 1));
@@ -352,6 +373,7 @@ const app = createApp({
     const independentBands = computed(() => state.bands.filter((band) => band.type === "independent"));
     const musiciansById = computed(() => Object.fromEntries(state.musicians.map((musician) => [musician.id, musician])));
     const activeMusicians = computed(() => state.musicians.filter((musician) => musician.active !== false));
+    const archivedMusicians = computed(() => sortByName(state.musicians.filter((musician) => musician.active === false)));
     const teachersById = computed(() => Object.fromEntries(state.teachers.map((teacher) => [teacher.id, teacher])));
     const coursesById = computed(() => Object.fromEntries(state.individualCourses.map((course) => [course.id, course])));
     const bandsById = computed(() => Object.fromEntries(state.bands.map((band) => [band.id, band])));
@@ -425,28 +447,32 @@ const app = createApp({
       return map;
     });
 
-    const musicianRows = computed(() => filteredMusicians.value.map((musician) => {
-      return buildMusicianAccountingRow(musician);
-    }));
+    const studentDraftsByMusicianId = computed(() => Object.fromEntries(
+      (billingSummary.value?.studentInvoices || []).map((draft) => [draft.musicianId, draft]),
+    ));
 
-    const studentBillingRows = computed(() => state.musicians.map((musician) => {
-      return buildMusicianAccountingRow(musician);
-    }));
+    const musicianRows = computed(() => filteredMusicians.value.map((musician) => (
+      buildMusicianAccountingRow(musician, studentDraftsByMusicianId.value[musician.id])
+    )));
 
-    function buildMusicianAccountingRow(musician) {
+    const studentBillingRows = computed(() => (billingSummary.value?.studentInvoices || [])
+      .map((draft) => musiciansById.value[draft.musicianId] && buildMusicianAccountingRow(
+        musiciansById.value[draft.musicianId],
+        draft,
+      ))
+      .filter(Boolean));
+
+    function buildMusicianAccountingRow(musician, draft) {
       const course = state.individualCourses.find((item) => item.musicianId === musician.id);
       const bands = state.bands.filter((band) => band.memberIds.includes(musician.id));
-      const courseCount = course ? countPresences("individualCourse", course.id) : 0;
-      const courseDue = course ? courseCount * COURSE_DURATION_HOURS * state.settings.teacherHourlyRate : 0;
-      const groupFee = isFirstTerm.value && bands.length > 0 ? state.settings.groupMembershipFee : 0;
       return {
         musician,
         course,
         bands,
-        courseCount,
-        courseDue,
-        groupFee,
-        totalDue: courseDue + groupFee,
+        courseCount: draft?.individualCourseCount ?? 0,
+        courseDue: draft ? Number(draft.individualCourseAmount) : null,
+        groupFee: draft ? Number(draft.groupMembershipAmount) : null,
+        totalDue: draft ? Number(draft.totalAmount) : null,
       };
     }
 
@@ -457,11 +483,17 @@ const app = createApp({
         return { course, musician, teacher, count: countPresences("individualCourse", course.id) };
       })
       .filter((row) => row.musician && row.teacher && (isActiveCourse(row.course) || hasTermAttendance("individualCourse", row.course.id)))
+      .filter((row) => !attendanceTeacherFilterId.value || row.course.teacherId === attendanceTeacherFilterId.value)
       .sort((a, b) => `${a.course.weekday} ${a.course.startTime} ${fullName(a.musician)}`.localeCompare(`${b.course.weekday} ${b.course.startTime} ${fullName(b.musician)}`, "fr")));
 
     const attendanceWorkshopRows = computed(() => workshopBands.value
       .map((band) => ({ band, teacher: teachersById.value[band.teacherId], count: countPresences("workshop", band.id) }))
+      .filter((row) => !attendanceTeacherFilterId.value || row.band.teacherId === attendanceTeacherFilterId.value)
       .sort((a, b) => a.band.name.localeCompare(b.band.name, "fr")));
+
+    const teacherRequestsById = computed(() => Object.fromEntries(
+      (billingSummary.value?.teacherInvoiceRequests || []).map((request) => [request.teacherId, request]),
+    ));
 
     const teacherRows = computed(() => state.teachers.map((teacher) => {
       const individualCount = state.individualCourses
@@ -475,25 +507,28 @@ const app = createApp({
         teacher,
         individualCount,
         workshopCount,
-        individualHours: individualCount * COURSE_DURATION_HOURS,
-        workshopHours: workshopCount * WORKSHOP_DURATION_HOURS,
-        totalDue: (individualCount * COURSE_DURATION_HOURS * hourlyRate) + (workshopCount * WORKSHOP_DURATION_HOURS * hourlyRate),
+        individualHours: individualCount * state.settings.individualCourseHours,
+        workshopHours: workshopCount * state.settings.workshopHours,
+        totalDue: teacherRequestsById.value[teacher.id]
+          ? Number(teacherRequestsById.value[teacher.id].totalAmount)
+          : null,
       };
     }));
 
     const totals = computed(() => {
-      const studentBilling = studentBillingRows.value.reduce((sum, row) => sum + row.courseDue, 0);
-      const groupFees = studentBillingRows.value.reduce((sum, row) => sum + row.groupFee, 0);
-      const teacherDue = teacherRows.value.reduce((sum, row) => sum + row.totalDue, 0);
+      const backendTotals = billingSummary.value?.totals;
       const annualExpenses = state.expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
       return {
-        studentBilling,
-        groupFees,
-        teacherDue,
+        studentBilling: backendTotals ? Number(backendTotals.studentBilling) : null,
+        groupFees: backendTotals ? Number(backendTotals.groupFees) : null,
+        teacherDue: backendTotals ? Number(backendTotals.teacherDue) : null,
         annualExpenses,
-        subsidy: teacherDue - (studentBilling / 2) - groupFees,
+        subsidy: backendTotals ? Number(backendTotals.subsidy) : null,
       };
     });
+    const studentTotal = computed(() => billingStatus.value === "ready"
+      ? totals.value.studentBilling + totals.value.groupFees
+      : null);
 
     const expenseRows = computed(() => [...state.expenses].sort((a, b) => (
       String(b.date).localeCompare(String(a.date)) || a.label.localeCompare(b.label, "fr")
@@ -594,36 +629,28 @@ const app = createApp({
 
     const billableStudentRows = computed(() => studentBillingRows.value.filter((item) => item.totalDue > 0));
 
-    const teacherWeeklyRows = computed(() => state.teachers.flatMap((teacher) => weeks.value.map((week) => {
-      const individualCount = state.individualCourses
-        .filter((course) => course.teacherId === teacher.id && isPresent("individualCourse", course.id, week))
-        .length;
-      const workshopCount = workshopBands.value
-        .filter((band) => band.teacherId === teacher.id && isPresent("workshop", band.id, week))
-        .length;
-      const hourlyRate = state.settings.teacherHourlyRate;
-      const individualAmount = individualCount * COURSE_DURATION_HOURS * hourlyRate;
-      const workshopAmount = workshopCount * WORKSHOP_DURATION_HOURS * hourlyRate;
-      return {
-        key: `${teacher.id}-${week}`,
+    const teacherWeeklyRows = computed(() => (billingSummary.value?.teacherInvoiceRequests || []).flatMap((request) => {
+      const teacher = teachersById.value[request.teacherId];
+      if (!teacher) return [];
+      return request.weeklyLines.map((line) => ({
+        key: `${request.teacherId}-${line.week}`,
         teacher,
-        week,
-        date: firstDayOfBusinessWeek(state.settings.year, week),
-        dateLabel: FRENCH_DATE.format(firstDayOfBusinessWeek(state.settings.year, week)),
-        hours: (individualCount * COURSE_DURATION_HOURS) + (workshopCount * WORKSHOP_DURATION_HOURS),
-        totalAmount: individualAmount + workshopAmount,
-      };
-    })).filter((row) => row.totalAmount > 0));
+        week: line.week,
+        date: new Date(`${line.date}T00:00:00`),
+        dateLabel: FRENCH_DATE.format(new Date(`${line.date}T00:00:00`)),
+        hours: Number(line.hours),
+        totalAmount: Number(line.amount),
+      }));
+    }));
 
-    const teacherBillingSections = computed(() => state.teachers.map((teacher) => {
-      const rows = teacherWeeklyRows.value.filter((row) => row.teacher.id === teacher.id);
-      return {
-        teacher,
-        rows,
-        totalHours: rows.reduce((sum, row) => sum + row.hours, 0),
-        totalAmount: rows.reduce((sum, row) => sum + row.totalAmount, 0),
-      };
-    }).filter((section) => section.rows.length > 0));
+    const teacherBillingSections = computed(() => (billingSummary.value?.teacherInvoiceRequests || [])
+      .map((request) => ({
+        teacher: teachersById.value[request.teacherId],
+        rows: teacherWeeklyRows.value.filter((row) => row.teacher.id === request.teacherId),
+        totalHours: Number(request.totalHours),
+        totalAmount: Number(request.totalAmount),
+      }))
+      .filter((section) => section.teacher && section.rows.length > 0));
 
     const signatureSheetSections = computed(() => state.teachers.map((teacher) => {
       const individualColumns = state.individualCourses
@@ -707,7 +734,34 @@ const app = createApp({
     }
 
     function isPresent(entityType, entityId, week) {
-      return Boolean(attendanceFor(entityType, entityId, week)?.present);
+      return attendanceStatus(entityType, entityId, week) === "PRESENT";
+    }
+
+    function attendanceStatus(entityType, entityId, week) {
+      return attendanceFor(entityType, entityId, week)?.status || "UNRECORDED";
+    }
+
+    function attendanceSymbol(entityType, entityId, week) {
+      return { PRESENT: "1", ABSENT: "–", CANCELLED: "×" }[attendanceStatus(entityType, entityId, week)] || "";
+    }
+
+    function scheduledSessionDate(entityType, entityId, week) {
+      const existing = attendanceFor(entityType, entityId, week)?.sessionDate;
+      if (existing) return existing;
+      const weekday = entityType === "individualCourse" ? coursesById.value[entityId]?.weekday : bandsById.value[entityId]?.weekday;
+      const firstDay = new Date(Date.UTC(state.settings.year, 0, 1));
+      if (week === 1) return firstDay.toISOString().slice(0, 10);
+      const isoDay = firstDay.getUTCDay() || 7;
+      const firstMonday = new Date(firstDay);
+      firstMonday.setUTCDate(firstDay.getUTCDate() + ((8 - isoDay) % 7) + ((week - 2) * 7) + Math.max(0, WEEKDAYS.indexOf(weekday)));
+      return firstMonday.toISOString().slice(0, 10);
+    }
+
+    function attendanceDateLabel(entityType, entityId, week) {
+      const value = scheduledSessionDate(entityType, entityId, week);
+      if (!value) return "";
+      const [year, month, day] = value.split("-");
+      return `${day}/${month}`;
     }
 
     function countPresences(entityType, entityId) {
@@ -740,10 +794,14 @@ const app = createApp({
 
     async function saveSettings() {
       if (!canAny(["CONFIG_FINANCIALS", "CONFIG_TERMS", "CONFIG_HOLIDAYS"])) return;
+      if (!ensureStructureMutable()) return;
       const payload = {
+        version: state.settings.version,
         year: state.settings.year,
         teacherHourlyRate: Number(state.settings.teacherHourlyRate) || 0,
         groupMembershipFee: Number(state.settings.groupMembershipFee) || 0,
+        individualCourseHours: Number(state.settings.individualCourseHours) || COURSE_DURATION_HOURS,
+        workshopHours: Number(state.settings.workshopHours) || WORKSHOP_DURATION_HOURS,
         schoolHolidayWeeks: selectedHolidayWeeks.value,
         terms: state.settings.terms.map((term, index) => ({
           id: term.id,
@@ -764,11 +822,37 @@ const app = createApp({
       }
     }
 
+    async function copyAnnualConfiguration() {
+      if (!can("CONFIG_TERMS")) return;
+      if (!ensureStructureMutable()) return;
+      const sourceYear = Number(copySourceYear.value);
+      const targetYear = Number(state.settings.year);
+      if (!sourceYear || sourceYear === targetYear) {
+        showToast("Choisis une année source différente", "warning");
+        return;
+      }
+      const snapshot = await requestResource(
+        "POST",
+        `accounting-years/${targetYear}/copy-configuration-from/${sourceYear}`,
+        null,
+        {
+          successMessage: `Configuration ${sourceYear} copiée vers ${targetYear}`,
+          errorMessage: "Configuration annuelle non copiée",
+        },
+      );
+      if (!snapshot) return;
+      Object.assign(state, normalizeSnapshot(snapshot));
+      resetFormsAfterStateLoad();
+      await loadBillingSummary();
+    }
+
     function toggleAttendance(entityType, entityId, week) {
       if (!can("PRESENCE_WRITE")) return;
+      if (!ensureYearNotClosed("Les présences sont verrouillées")) return;
       const existing = attendanceFor(entityType, entityId, week);
       if (existing) {
-        existing.present = !existing.present;
+        existing.status = { PRESENT: "ABSENT", ABSENT: "CANCELLED", CANCELLED: "PRESENT" }[existing.status] || "PRESENT";
+        existing.present = existing.status === "PRESENT";
         saveAttendance(existing);
         return;
       }
@@ -779,6 +863,8 @@ const app = createApp({
         entityType,
         entityId,
         present: true,
+        status: "PRESENT",
+        sessionDate: scheduledSessionDate(entityType, entityId, week),
       };
       state.attendance.push(entry);
       saveAttendance(entry);
@@ -969,6 +1055,7 @@ const app = createApp({
       if (!teacherId) return;
 
       const payload = {
+        year: state.settings.year,
         musicianId,
         teacherId,
         instrument: musicianForm.instrument.trim() || "Instrument",
@@ -1040,6 +1127,7 @@ const app = createApp({
 
     async function saveMusician() {
       if (!can("MUSICIENS_WRITE")) return;
+      if (!ensureStructureMutable()) return;
       if (!musicianForm.firstName.trim() || !musicianForm.lastName.trim()) return;
       if (slotTakenByOtherMusician()) return;
 
@@ -1077,6 +1165,7 @@ const app = createApp({
 
     async function deleteMusician(musicianId) {
       if (!can("MUSICIENS_WRITE")) return;
+      if (!ensureStructureMutable()) return;
       const musician = state.musicians.find((item) => item.id === musicianId);
       if (musician) {
         musician.active = false;
@@ -1091,6 +1180,18 @@ const app = createApp({
         errorMessage: "Musicien archivé localement",
       });
       if (editingMusicianId.value === musicianId) resetMusicianForm();
+    }
+
+    async function restoreMusician(musicianId) {
+      if (!can("MUSICIENS_ARCHIVED")) return;
+      if (!ensureStructureMutable()) return;
+      const restored = await requestResource("POST", `musicians/${musicianId}/restore`, null, {
+        successMessage: "Musicien désarchivé",
+        errorMessage: "Musicien non désarchivé",
+      });
+      if (!restored) return;
+      const musician = state.musicians.find((item) => item.id === musicianId);
+      if (musician) Object.assign(musician, restored, { active: true });
     }
 
     function selectGroup(groupId) {
@@ -1134,12 +1235,14 @@ const app = createApp({
 
     async function saveGroup() {
       if (!can("GROUPS_WRITE")) return;
+      if (!ensureStructureMutable()) return;
       if (!groupForm.name.trim()) return;
       const existing = selectedGroupId.value ? state.bands.find((band) => band.id === selectedGroupId.value) : null;
       const teacherId = teachersById.value[groupForm.teacherId]
         ? groupForm.teacherId
         : state.teachers[0]?.id;
       const payload = {
+        year: state.settings.year,
         name: groupForm.name.trim(),
         type: groupForm.type,
         teacherId: groupForm.type === "workshop" ? teacherId : undefined,
@@ -1149,7 +1252,7 @@ const app = createApp({
       const savedBand = await requestResource(
         existing ? "PUT" : "POST",
         existing ? `bands/${existing.id}` : "bands",
-        existing ? { ...payload, id: existing.id } : payload,
+        existing ? { ...payload, id: existing.id, version: existing.version } : payload,
         {
           successMessage: existing ? "Groupe enregistré" : "Groupe créé",
           errorMessage: existing ? "Groupe conservé en local" : "Groupe créé en local",
@@ -1168,6 +1271,7 @@ const app = createApp({
 
     async function deleteGroup(groupId) {
       if (!can("GROUPS_WRITE")) return;
+      if (!ensureStructureMutable()) return;
       state.bands = state.bands.filter((band) => band.id !== groupId);
       state.attendance = state.attendance.filter((entry) => !(entry.entityType === "workshop" && entry.entityId === groupId));
       await requestResource("DELETE", `bands/${groupId}`, null, {
@@ -1202,6 +1306,7 @@ const app = createApp({
 
     async function saveExpense() {
       if (!can("EXPENSES_WRITE")) return;
+      if (!ensureYearNotClosed("Les dépenses sont verrouillées")) return;
       if (!expenseForm.label.trim()) return;
       const existing = editingExpenseId.value
         ? state.expenses.find((expense) => expense.id === editingExpenseId.value)
@@ -1236,6 +1341,7 @@ const app = createApp({
 
     async function deleteExpense(expenseId) {
       if (!can("EXPENSES_DELETE")) return;
+      if (!ensureYearNotClosed("Les dépenses sont verrouillées")) return;
       const deleted = await requestResource("DELETE", `expenses/${expenseId}`, null, {
         successMessage: "Dépense supprimée",
         errorMessage: "Dépense non supprimée côté backend",
@@ -1261,6 +1367,7 @@ const app = createApp({
 
     async function prepareAllStudentInvoices() {
       if (!can("BILLING_PRINT")) return;
+      if (!ensureYearNotClosed("L'émission est verrouillée")) return;
       const documents = await requestResource(
         "POST",
         `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/student-invoices`,
@@ -1290,6 +1397,7 @@ const app = createApp({
 
     async function prepareAllTeacherInvoiceRequests() {
       if (!can("BILLING_PRINT")) return;
+      if (!ensureYearNotClosed("L'émission est verrouillée")) return;
       const documents = await requestResource(
         "POST",
         `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests`,
@@ -1304,6 +1412,26 @@ const app = createApp({
       }
     }
 
+    async function finalizeAllStudentInvoices() {
+      if (!can("BILLING_PRINT") || !ensureYearNotClosed("La validation est verrouillée")) return;
+      if (!window.confirm("Valider définitivement toutes les factures élèves de ce trimestre ? Elles ne pourront plus être régénérées.")) return;
+      const documents = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/student-invoices/finalize`, null, {
+        successMessage: "Factures élèves validées définitivement",
+        errorMessage: "Validation définitive impossible",
+      });
+      if (documents) studentInvoiceDocuments.value = documents;
+    }
+
+    async function finalizeAllTeacherInvoiceRequests() {
+      if (!can("BILLING_PRINT") || !ensureYearNotClosed("La validation est verrouillée")) return;
+      if (!window.confirm("Valider définitivement toutes les demandes professeurs de ce trimestre ? Elles ne pourront plus être régénérées.")) return;
+      const documents = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/finalize`, null, {
+        successMessage: "Demandes professeurs validées définitivement",
+        errorMessage: "Validation définitive impossible",
+      });
+      if (documents) teacherInvoiceRequestDocuments.value = documents;
+    }
+
     function documentDownloadUrl(document) {
       return document?.id ? `${apiBase.value}/documents/${document.id}` : "";
     }
@@ -1316,12 +1444,81 @@ const app = createApp({
       return teacherInvoiceRequestDocuments.value.find((document) => document.teacherId === teacherId);
     }
 
+    function replaceLoadedDocument(updated) {
+      [studentInvoiceDocuments, teacherInvoiceRequestDocuments].forEach((collection) => {
+        const index = collection.value.findIndex((document) => document.id === updated.id);
+        if (index >= 0) collection.value.splice(index, 1, updated);
+      });
+    }
+
+    async function markDocumentSent(document) {
+      if (!window.confirm(`Marquer ${document.documentNumber || 'ce document'} comme envoyé ?`)) return;
+      const updated = await requestResource("POST", `documents/${document.id}/sent`, null, { successMessage: "Document marqué comme envoyé", errorMessage: "Transition impossible" });
+      if (updated) replaceLoadedDocument(updated);
+    }
+
+    async function cancelFinalDocument(document) {
+      const reason = window.prompt("Motif obligatoire de l’annulation :");
+      if (!reason?.trim()) return;
+      const updated = await requestResource("POST", `documents/${document.id}/cancel`, { reason: reason.trim() }, { successMessage: "Document annulé", errorMessage: "Annulation impossible" });
+      if (updated) {
+        replaceLoadedDocument(updated);
+        documentHistory.value.push(updated);
+      }
+    }
+
+    async function correctFinalDocument(document) {
+      const reason = window.prompt("Motif obligatoire de la correction :");
+      if (!reason?.trim()) return;
+      if (!window.confirm("Créer la chaîne de correction sans modifier le document original ?")) return;
+      const result = await requestResource("POST", `documents/${document.id}/correct`, { reason: reason.trim() }, { successMessage: "Correction créée", errorMessage: "Correction impossible" });
+      if (!result) return;
+      [studentInvoiceDocuments, teacherInvoiceRequestDocuments].forEach((collection) => {
+        const index = collection.value.findIndex((entry) => entry.id === document.id);
+        if (index >= 0) collection.value.splice(index, 1, result.replacement);
+      });
+      documentHistory.value.push(result.original, ...(result.creditNote ? [result.creditNote] : []));
+    }
+
+    function documentStatusLabel(status) {
+      return { DRAFT: "Brouillon", GENERATED: "Validé", SENT: "Envoyé", CANCELLED: "Annulé", CREDITED: "Crédité" }[status] || status;
+    }
+
     function showToast(message, type = "success") {
       const id = createId();
       toasts.value = [...toasts.value, { id, message, type }];
       setTimeout(() => {
         toasts.value = toasts.value.filter((toast) => toast.id !== id);
       }, 3600);
+    }
+
+    function ensureStructureMutable() {
+      if (!structureLocked.value) return true;
+      showToast(`Année ${yearStatusLabel.value.toLowerCase()} : la configuration est verrouillée`, "warning");
+      return false;
+    }
+
+    function ensureYearNotClosed(message) {
+      if (!yearClosed.value) return true;
+      showToast(`${message} pour une année clôturée`, "warning");
+      return false;
+    }
+
+    async function updateYearStatus(status) {
+      if (!can("CONFIG_TERMS") || status === yearStatus.value) return;
+      if (status === "CLOSED" && !window.confirm(
+        `Clôturer définitivement l'année ${state.settings.year} ? Les présences, dépenses et émissions seront verrouillées.`,
+      )) return;
+      const savedSettings = await requestResource(
+        "PUT",
+        `accounting-years/${state.settings.year}/status`,
+        { status },
+        {
+          successMessage: status === "CLOSED" ? "Année clôturée" : "Statut annuel mis à jour",
+          errorMessage: "Changement de statut refusé",
+        },
+      );
+      if (savedSettings) state.settings = { ...state.settings, ...savedSettings };
     }
 
     function togglePasswordVisibility(field) {
@@ -1351,10 +1548,10 @@ const app = createApp({
     }
 
     function setAuthSession(session) {
-      authSession.value = session;
-      currentUser.value = normalizeAuthUser(session.user);
+      const { refreshToken: _discardedRefreshToken, ...safeSession } = session;
+      authSession.value = safeSession;
+      currentUser.value = normalizeAuthUser(safeSession.user);
       syncProfileForm();
-      localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
       apiStatus.value = "connecté";
       loginError.value = "";
     }
@@ -1364,7 +1561,6 @@ const app = createApp({
       syncProfileForm();
       if (authSession.value) {
         authSession.value = { ...authSession.value, user: currentUser.value };
-        localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(authSession.value));
       }
     }
 
@@ -1463,19 +1659,19 @@ const app = createApp({
       apiStatus.value = "déconnecté";
     }
 
-    async function refreshSession() {
-      if (!authSession.value?.refreshToken) return false;
+    async function refreshSession(silent = false) {
       try {
         const response = await fetch(`${apiBase.value}/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refreshToken: authSession.value.refreshToken }),
+          credentials: "include",
+          body: "{}",
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         setAuthSession(await response.json());
         return true;
       } catch (error) {
-        console.warn("API POST auth/refresh failed", error);
+        if (!silent) console.warn("API POST auth/refresh failed", error);
         clearAuthSession();
         return false;
       }
@@ -1488,6 +1684,7 @@ const app = createApp({
       }
       const response = await fetch(`${apiBase.value}/${resource.replace(/^\/+/, "")}`, {
         ...options,
+        credentials: "include",
         headers,
       });
       if (response.status === 401 && retry && await refreshSession()) {
@@ -1495,6 +1692,62 @@ const app = createApp({
       }
       if (response.status === 401) clearAuthSession();
       return response;
+    }
+
+    async function loadBillingSummary() {
+      const year = Number(state.settings.year);
+      const termId = selectedTerm.value?.id;
+      if (!authSession.value?.accessToken || !termId || !canAny(["BILLING_READ", "BILLING_PRINT"])) {
+        billingSummary.value = null;
+        billingStatus.value = "idle";
+        billingError.value = "";
+        return;
+      }
+
+      const requestSequence = ++billingRequestSequence;
+      billingStatus.value = "loading";
+      billingError.value = "";
+      try {
+        const response = await apiFetch(`accounting-years/${year}/terms/${termId}/billing`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const summary = await response.json();
+        if (requestSequence !== billingRequestSequence) return;
+        billingSummary.value = summary;
+        billingStatus.value = "ready";
+        apiStatus.value = "connecté";
+        await loadTermDocuments(year, termId);
+      } catch (error) {
+        if (requestSequence !== billingRequestSequence) return;
+        console.warn(`API GET billing for ${year}/${termId} failed`, error);
+        billingSummary.value = null;
+        billingStatus.value = "error";
+        billingError.value = "Calcul comptable indisponible. Les montants ne sont pas recalculés dans le navigateur.";
+      }
+    }
+
+    async function loadTermDocuments(year, termId) {
+      try {
+        const response = await apiFetch(`accounting-years/${year}/terms/${termId}/documents`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const documents = await response.json();
+        const activeStatuses = new Set(["DRAFT", "GENERATED", "SENT"]);
+        studentInvoiceDocuments.value = documents.filter((document) => document.type === "STUDENT_INVOICE" && document.musicianId && activeStatuses.has(document.status));
+        teacherInvoiceRequestDocuments.value = documents.filter((document) => document.type === "TEACHER_INVOICE_REQUEST" && document.teacherId && activeStatuses.has(document.status));
+        studentInvoiceSummaryDocument.value = documents.find((document) => document.type === "STUDENT_INVOICE" && !document.musicianId && !document.teacherId && activeStatuses.has(document.status)) || null;
+        documentHistory.value = documents.filter((document) => document.type === "CREDIT_NOTE" || ["CANCELLED", "CREDITED"].includes(document.status));
+      } catch (error) {
+        console.warn(`API GET documents for ${year}/${termId} failed`, error);
+      }
+    }
+
+    function billingMoney(value) {
+      return billingStatus.value === "ready" ? money(value) : "—";
+    }
+
+    function resourceAffectsBilling(method, resource) {
+      if (!["POST", "PUT", "DELETE"].includes(method)) return false;
+      return /^(teachers|musicians|bands|individual-courses)(\/|$)/.test(resource)
+        || /^accounting-years\/[^/]+\/settings$/.test(resource);
     }
 
     async function loadCurrentAvatar() {
@@ -1553,11 +1806,17 @@ const app = createApp({
           body: body ? JSON.stringify(toApiPayload(resource, body)) : null,
         });
         if (!response.ok) {
+          if (response.status === 409) {
+            await loadFromApi();
+            showToast("Ces données ont été modifiées ailleurs. La version récente a été rechargée.", "warning");
+            return;
+          }
           const errorText = await response.text();
           throw new Error(`HTTP ${response.status} ${errorText}`);
         }
         apiStatus.value = "connecté";
         if (options.successMessage) showToast(options.successMessage, "success");
+        if (resourceAffectsBilling(method, resource)) queueMicrotask(loadBillingSummary);
         if (response.status === 204) return null;
         const contentType = response.headers.get("content-type") || "";
         return contentType.includes("application/json") ? response.json() : null;
@@ -1581,6 +1840,11 @@ const app = createApp({
           body: JSON.stringify(toApiPayload("attendance", entry)),
         });
         if (!response.ok) {
+          if (response.status === 409) {
+            await loadFromApi();
+            showToast("Cette présence a été modifiée ailleurs. Les données ont été rechargées.", "warning");
+            return;
+          }
           const errorText = await response.text();
           throw new Error(`HTTP ${response.status} ${errorText}`);
         }
@@ -1590,10 +1854,12 @@ const app = createApp({
           Object.assign(entry, {
             ...savedEntry,
             entityType: apiAttendanceTypeToUi(savedEntry.entityType),
+            status: savedEntry.status || (savedEntry.present ? "PRESENT" : "ABSENT"),
           });
         }
         apiStatus.value = "connecté";
         showToast("Présence enregistrée", "success");
+        await loadBillingSummary();
       } catch (error) {
         console.warn("API PUT attendance failed", error);
         markApiFailure();
@@ -1613,8 +1879,12 @@ const app = createApp({
         resetFormsAfterStateLoad();
         apiStatus.value = "connecté";
         await loadCurrentUser();
+        await loadBillingSummary();
         showToast(`Année ${state.settings.year} chargée`, "success");
       } catch {
+        billingSummary.value = null;
+        billingStatus.value = "error";
+        billingError.value = "Calcul comptable indisponible. Les montants ne sont pas recalculés dans le navigateur.";
         markApiFailure({ expiredMessage: "Session expirée" });
         showToast("Backend indisponible, mode démo actif", "warning");
       }
@@ -1977,6 +2247,7 @@ const app = createApp({
         const response = await fetch(`${apiBase.value}/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             username: loginForm.username.trim(),
             password: loginForm.password,
@@ -1999,7 +2270,6 @@ const app = createApp({
     }
 
     async function logout() {
-      const refreshToken = authSession.value?.refreshToken || "";
       try {
         await apiFetch("auth/logout", {
           method: "POST",
@@ -2007,7 +2277,7 @@ const app = createApp({
             "Content-Type": "application/json",
             "Idempotency-Key": createId("logout"),
           },
-          body: JSON.stringify({ refreshToken }),
+          body: "{}",
         }, false);
       } catch (error) {
         console.warn("API POST auth/logout failed", error);
@@ -2084,35 +2354,77 @@ const app = createApp({
 
     function selectImportFile(event) {
       selectedImportFile.value = event.target.files?.[0] || null;
+      importPayload.value = null;
+      importAnalysis.value = null;
+      importConfirmation.value = "";
     }
 
-    async function importData() {
+    async function analyzeImport() {
       if (!can("IMPORT_EXPORT")) return;
       if (!selectedImportFile.value) return;
-      const confirmed = window.confirm("L'import remplace les données métier du serveur cible. Continuer ?");
-      if (!confirmed) return;
       try {
         const payload = JSON.parse(await selectedImportFile.value.text());
-        const result = await requestResource("POST", "data/import", payload, {
-          successMessage: "Import JSON terminé",
-          errorMessage: "Import JSON refusé côté backend",
+        const analysis = await requestResource("POST", "data/import/analyze", payload, {
+          successMessage: "Analyse de l’import terminée",
+          errorMessage: "Analyse de l’import impossible",
         });
-        if (result) {
-          await loadFromApi();
-          selectedImportFile.value = null;
+        if (analysis) {
+          importPayload.value = payload;
+          importAnalysis.value = analysis;
         }
       } catch (error) {
-        console.warn("Import JSON failed", error);
+        console.warn("Import analysis failed", error);
         showToast("Fichier JSON invalide", "error");
       }
     }
 
+    async function importData() {
+      if (!can("IMPORT_EXPORT") || !importAnalysis.value?.valid || !importPayload.value) return;
+      if (importConfirmation.value !== importAnalysis.value.confirmationValue) return;
+      try {
+        const response = await apiFetch("data/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Import-Confirmation": importConfirmation.value },
+          body: JSON.stringify(importPayload.value),
+        });
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        const result = await response.json();
+        showToast(`Import terminé · sauvegarde ${result.backupFile}`, "success");
+        await loadFromApi();
+        selectedImportFile.value = null;
+        importPayload.value = null;
+        importAnalysis.value = null;
+        importConfirmation.value = "";
+      } catch (error) {
+        console.warn("Import JSON failed", error);
+        showToast(error.message || "Import JSON refusé côté backend", "error");
+      }
+    }
+
+    async function loadAuditEvents() {
+      const events = await requestResource("GET", "audit-events?limit=100", null, { errorMessage: "Journal d’audit indisponible" });
+      if (events) auditEvents.value = events;
+    }
+
+    function auditActionLabel(action) {
+      return { CREATED: "Création", UPDATED: "Modification", DELETED: "Suppression", SETTINGS_UPDATED: "Configuration modifiée", STATUS_CHANGED: "Cycle modifié", SENT: "Document envoyé", CANCELLED: "Document annulé", CORRECTED: "Document corrigé" }[action] || action;
+    }
+
     selectGroup(selectedGroupId.value);
-    if (authSession.value?.accessToken) {
+    watch(selectedTermId, () => {
+      preparedStudentInvoices.value = false;
+      studentInvoiceDocuments.value = [];
+      studentInvoiceSummaryDocument.value = null;
+      teacherInvoiceRequestDocuments.value = [];
+      documentHistory.value = [];
+      loadBillingSummary();
+    });
+    refreshSession(true).then((restored) => {
+      if (!restored) return;
       loadCurrentUser().then(() => {
         if (!mustChangePassword.value) loadFromApi();
       });
-    }
+    });
 
     return {
       state,
@@ -2120,11 +2432,16 @@ const app = createApp({
       activeView,
       selectedTermId,
       selectedTerm,
+      yearStatus,
+      yearStatusLabel,
+      structureLocked,
+      yearClosed,
       isFirstTerm,
       weeks,
       allYearWeeks,
       apiBase,
       accountingYearInput,
+      copySourceYear,
       apiStatus,
       authLoading,
       login,
@@ -2177,7 +2494,17 @@ const app = createApp({
       studentInvoiceDocuments,
       studentInvoiceSummaryDocument,
       teacherInvoiceRequestDocuments,
+      documentHistory,
+      billingStatus,
+      billingError,
+      loadBillingSummary,
+      copyAnnualConfiguration,
+      updateYearStatus,
+      billingMoney,
+      studentTotal,
       selectedImportFile,
+      importAnalysis,
+      importConfirmation,
       musicianForm,
       teacherForm,
       groupForm,
@@ -2192,6 +2519,7 @@ const app = createApp({
       coursesById,
       bandsById,
       activeMusicians,
+      archivedMusicians,
       timeSlots,
       scheduleRows,
       musicianRows,
@@ -2207,6 +2535,8 @@ const app = createApp({
       selectedHolidayWeeks,
       availableHolidayWeeks,
       toasts,
+      auditEvents,
+      attendanceTeacherFilterId,
       teacherRows,
       expenseRows,
       expenseTotalsByCategory,
@@ -2223,6 +2553,9 @@ const app = createApp({
       countPresences,
       memberCount,
       isPresent,
+      attendanceStatus,
+      attendanceSymbol,
+      attendanceDateLabel,
       toggleAttendance,
       isHolidayWeek,
       addHolidayWeek,
@@ -2234,6 +2567,7 @@ const app = createApp({
       removeMusicianBand,
       saveMusician,
       deleteMusician,
+      restoreMusician,
       resetTeacherForm,
       editTeacher,
       saveTeacher,
@@ -2252,10 +2586,16 @@ const app = createApp({
       deleteExpense,
       prepareAllStudentInvoices,
       prepareAllTeacherInvoiceRequests,
+      finalizeAllStudentInvoices,
+      finalizeAllTeacherInvoiceRequests,
       documentDownloadUrl,
       downloadDocument,
       documentForMusician,
       documentForTeacher,
+      markDocumentSent,
+      cancelFinalDocument,
+      correctFinalDocument,
+      documentStatusLabel,
       isSlotDisabled,
       slotTakenByOtherMusician,
       saveApiBase,
@@ -2290,7 +2630,10 @@ const app = createApp({
       printPage,
       exportData,
       selectImportFile,
+      analyzeImport,
       importData,
+      loadAuditEvents,
+      auditActionLabel,
     };
   },
   template: `
@@ -2474,7 +2817,7 @@ const app = createApp({
           <button v-if="!mustChangePassword" :class="{ active: activeView === 'dashboard' }" @click="activeView = 'dashboard'">Tableau de bord</button>
           <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'attendance' }" @click="activeView = 'attendance'">Présences</button>
           <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'signatures' }" @click="activeView = 'signatures'">Émargement</button>
-          <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" :class="{ active: activeView === 'people' }" @click="activeView = 'people'">Musiciens</button>
+          <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE', 'MUSICIENS_ARCHIVED'])" :class="{ active: activeView === 'people' }" @click="activeView = 'people'">Musiciens</button>
           <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" :class="{ active: activeView === 'slots' }" @click="activeView = 'slots'">Créneaux</button>
           <button v-if="!mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" :class="{ active: activeView === 'groups' }" @click="activeView = 'groups'">Groupes</button>
           <button v-if="!mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" :class="{ active: activeView === 'expenses' }" @click="activeView = 'expenses'">Dépenses</button>
@@ -2527,22 +2870,26 @@ const app = createApp({
         </header>
 
         <section v-if="activeView === 'dashboard' && !mustChangePassword" class="view-stack">
+          <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error' }" role="status">
+            <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Connectez le backend pour charger les montants comptables.') }}</span>
+            <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
+          </div>
           <div class="kpi-grid">
             <article class="kpi">
               <span>À facturer élèves</span>
-              <strong>{{ money(totals.studentBilling + totals.groupFees) }}</strong>
+              <strong>{{ billingMoney(studentTotal) }}</strong>
               <small>Cours + cotisations groupe</small>
               <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
             <article class="kpi">
               <span>Dû professeurs</span>
-              <strong>{{ money(totals.teacherDue) }}</strong>
+              <strong>{{ billingMoney(totals.teacherDue) }}</strong>
               <small>Cours individuels + groupes encadrés</small>
               <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
             <article class="kpi">
               <span>Cotisations groupe</span>
-              <strong>{{ money(totals.groupFees) }}</strong>
+              <strong>{{ billingMoney(totals.groupFees) }}</strong>
               <small>Dédupliquées par musicien</small>
               <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
@@ -2554,7 +2901,7 @@ const app = createApp({
             </article>
             <article class="kpi emphasis">
               <span>Subvention estimée</span>
-              <strong>{{ money(totals.subsidy) }}</strong>
+              <strong>{{ billingMoney(totals.subsidy) }}</strong>
               <small>Dû profs - 50% cours - cotisations</small>
               <img class="kpi-signal" src="/src/assets/kpi-waveform-green.png" alt="" aria-hidden="true" />
             </article>
@@ -2583,7 +2930,7 @@ const app = createApp({
                     </td>
                     <td>{{ row.individualHours.toFixed(2) }} h</td>
                     <td>{{ row.workshopHours.toFixed(2) }} h</td>
-                    <td class="num">{{ money(row.totalDue) }}</td>
+                    <td class="num">{{ billingMoney(row.totalDue) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -2613,6 +2960,21 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'attendance' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack">
+          <div class="attendance-toolbar">
+            <label class="attendance-teacher-filter">
+              <span>Professeur</span>
+              <select v-model="attendanceTeacherFilterId" aria-label="Filtrer les présences par professeur">
+                <option value="">Tous les professeurs</option>
+                <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
+              </select>
+            </label>
+            <div class="attendance-legend" aria-label="Légende des présences">
+              <span><i class="legend-dot unrecorded"></i>Non renseigné</span>
+              <span><i class="legend-dot present">1</i>Présent</span>
+              <span><i class="legend-dot absent">–</i>Absent</span>
+              <span><i class="legend-dot cancelled">×</i>Annulé</span>
+            </div>
+          </div>
           <div class="panel">
             <div class="panel-head">
               <div>
@@ -2641,13 +3003,15 @@ const app = createApp({
                     <td>{{ row.teacher.firstName }}</td>
                     <td v-for="week in weeks" :key="week" :class="['presence-cell', { holiday: isHolidayWeek(week) }]">
                       <button
-                        :class="{ present: isPresent('individualCourse', row.course.id, week) }"
+                        :class="['attendance-state', attendanceStatus('individualCourse', row.course.id, week).toLowerCase()]"
                         @click="toggleAttendance('individualCourse', row.course.id, week)"
                         :disabled="!can('PRESENCE_WRITE')"
-                        :aria-label="'Présence ' + fullName(row.musician) + ' semaine ' + week"
+                        :aria-label="'Présence ' + fullName(row.musician) + ' semaine ' + week + ' : ' + attendanceStatus('individualCourse', row.course.id, week)"
+                        :title="attendanceStatus('individualCourse', row.course.id, week)"
                       >
-                        {{ isPresent('individualCourse', row.course.id, week) ? '1' : '' }}
+                        {{ attendanceSymbol('individualCourse', row.course.id, week) }}
                       </button>
+                      <small class="session-date-label">{{ attendanceDateLabel('individualCourse', row.course.id, week) }}</small>
                     </td>
                     <td class="num">{{ row.count }}</td>
                   </tr>
@@ -2684,13 +3048,15 @@ const app = createApp({
                     <td>{{ row.teacher?.firstName || '-' }}</td>
                     <td v-for="week in weeks" :key="week" :class="['presence-cell', { holiday: isHolidayWeek(week) }]">
                       <button
-                        :class="{ present: isPresent('workshop', row.band.id, week) }"
+                        :class="['attendance-state', attendanceStatus('workshop', row.band.id, week).toLowerCase()]"
                         @click="toggleAttendance('workshop', row.band.id, week)"
                         :disabled="!can('PRESENCE_WRITE')"
-                        :aria-label="'Séance ' + row.band.name + ' semaine ' + week"
+                        :aria-label="'Séance ' + row.band.name + ' semaine ' + week + ' : ' + attendanceStatus('workshop', row.band.id, week)"
+                        :title="attendanceStatus('workshop', row.band.id, week)"
                       >
-                        {{ isPresent('workshop', row.band.id, week) ? '1' : '' }}
+                        {{ attendanceSymbol('workshop', row.band.id, week) }}
                       </button>
+                      <small class="session-date-label">{{ attendanceDateLabel('workshop', row.band.id, week) }}</small>
                     </td>
                     <td class="num">{{ row.count }}</td>
                   </tr>
@@ -2789,7 +3155,7 @@ const app = createApp({
           </section>
         </section>
 
-        <section v-if="activeView === 'people' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="view-stack">
+        <section v-if="activeView === 'people' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE', 'MUSICIENS_ARCHIVED'])" class="view-stack">
           <section v-if="can('MUSICIENS_WRITE')" id="musician-editor-panel" class="panel">
             <div class="panel-head">
               <div>
@@ -2891,7 +3257,7 @@ const app = createApp({
             </div>
           </section>
 
-          <section class="panel">
+          <section v-if="canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="panel">
             <div class="panel-head musicians-head">
               <div>
                 <h2>Musiciens</h2>
@@ -2920,7 +3286,7 @@ const app = createApp({
                     <span v-if="row.bands.length">{{ row.bands.map(band => band.name).join(', ') }}</span>
                     <span v-else class="muted">Aucun</span>
                   </td>
-                  <td class="num">{{ money(row.totalDue) }}</td>
+                  <td class="num">{{ billingMoney(row.totalDue) }}</td>
                   <td v-if="can('MUSICIENS_WRITE')" class="row-actions">
                     <button class="action-button" @click="editMusician(row.musician)" :aria-label="'Modifier ' + fullName(row.musician)" :title="'Modifier ' + fullName(row.musician)">
                       <svg aria-hidden="true"><use href="#icon-edit"></use></svg>
@@ -2932,6 +3298,38 @@ const app = createApp({
                 </tr>
               </tbody>
             </table>
+          </section>
+
+          <section v-if="can('MUSICIENS_ARCHIVED')" class="panel archived-musicians-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Musiciens archivés</h2>
+                <span>{{ archivedMusicians.length }} musicien{{ archivedMusicians.length > 1 ? 's' : '' }} archivé{{ archivedMusicians.length > 1 ? 's' : '' }}</span>
+              </div>
+            </div>
+            <div v-if="archivedMusicians.length" class="attendance-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Musicien</th>
+                    <th>Adresse mail</th>
+                    <th class="actions-col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="musician in archivedMusicians" :key="musician.id">
+                    <td><strong>{{ fullName(musician) }}</strong></td>
+                    <td>{{ musician.email || '—' }}</td>
+                    <td class="row-actions">
+                      <button class="action-button restore" @click="restoreMusician(musician.id)" :aria-label="'Désarchiver ' + fullName(musician)" :title="'Désarchiver ' + fullName(musician)">
+                        <svg aria-hidden="true"><use href="#icon-user-check"></use></svg>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="empty-state">Aucun musicien archivé.</p>
           </section>
         </section>
 
@@ -3117,6 +3515,17 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'billing' && !mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" class="view-stack">
+          <div class="document-workflow-note">
+            <strong>1. Prévisualiser et corriger</strong>
+            <span>Les PDF restent des brouillons régénérables.</span>
+            <i class="ph ph-arrow-right" aria-hidden="true"></i>
+            <strong>2. Valider définitivement</strong>
+            <span>Les documents validés sont ensuite figés.</span>
+          </div>
+          <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error' }" role="status">
+            <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Calcul comptable non chargé.') }}</span>
+            <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
+          </div>
           <section class="panel">
             <div class="panel-head">
               <div>
@@ -3127,25 +3536,26 @@ const app = createApp({
                 <a v-if="studentInvoiceSummaryDocument" class="document-link" href="#" @click.prevent="downloadDocument(studentInvoiceSummaryDocument)">
                   PDF global
                 </a>
-                <button v-if="can('BILLING_PRINT')" class="primary-button" @click="prepareAllStudentInvoices">Préparer toutes les factures</button>
+                <button v-if="can('BILLING_PRINT')" class="primary-button" @click="prepareAllStudentInvoices">Prévisualiser les factures</button>
+                <button v-if="can('BILLING_PRINT') && studentInvoiceDocuments.some(document => document.status === 'DRAFT')" class="danger-outline-button" @click="finalizeAllStudentInvoices">Valider définitivement</button>
               </div>
             </div>
             <div class="invoice-summary">
               <article>
                 <span>Montant global élèves</span>
-                <strong>{{ money(totals.studentBilling + totals.groupFees) }}</strong>
+                <strong>{{ billingMoney(studentTotal) }}</strong>
               </article>
               <article>
                 <span>Cours individuels</span>
-                <strong>{{ money(totals.studentBilling) }}</strong>
+                <strong>{{ billingMoney(totals.studentBilling) }}</strong>
               </article>
               <article>
                 <span>Cotisations groupe</span>
-                <strong>{{ money(totals.groupFees) }}</strong>
+                <strong>{{ billingMoney(totals.groupFees) }}</strong>
                 <small>{{ isFirstTerm ? 'Cotisation annuelle appliquée' : 'Cotisation annuelle déjà traitée au T1' }}</small>
               </article>
             </div>
-            <p v-if="preparedStudentInvoices" class="success-note">Documents générés: {{ studentInvoiceDocuments.length }} factures élèves pour {{ selectedTerm.name }} {{ state.settings.year }}.</p>
+            <p v-if="preparedStudentInvoices" class="success-note">{{ studentInvoiceDocuments.length }} brouillons disponibles pour {{ selectedTerm.name }} {{ state.settings.year }}. Vous pouvez les régénérer jusqu’à leur validation définitive.</p>
             <div class="attendance-table-wrap">
               <table>
                 <thead>
@@ -3160,14 +3570,20 @@ const app = createApp({
                 <tbody>
                   <tr v-for="row in billableStudentRows" :key="row.musician.id">
                     <td><strong>{{ fullName(row.musician) }}</strong></td>
-                    <td class="num">{{ money(row.courseDue) }}</td>
-                    <td class="num">{{ money(row.groupFee) }}</td>
-                    <td class="num">{{ money(row.totalDue) }}</td>
+                    <td class="num">{{ billingMoney(row.courseDue) }}</td>
+                    <td class="num">{{ billingMoney(row.groupFee) }}</td>
+                    <td class="num">{{ billingMoney(row.totalDue) }}</td>
                     <td>
-                      <a v-if="documentForMusician(row.musician.id)" class="document-link" href="#" @click.prevent="downloadDocument(documentForMusician(row.musician.id))">
-                        PDF
+                      <a v-if="documentForMusician(row.musician.id)?.fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForMusician(row.musician.id))">
+                        PDF · {{ documentStatusLabel(documentForMusician(row.musician.id).status) }}
                       </a>
+                      <span v-else-if="documentForMusician(row.musician.id)" class="muted">Brouillon à régénérer</span>
                       <span v-else class="muted">Non généré</span>
+                      <div v-if="documentForMusician(row.musician.id) && can('BILLING_PRINT')" class="document-row-actions">
+                        <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="markDocumentSent(documentForMusician(row.musician.id))">Marquer envoyé</button>
+                        <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="cancelFinalDocument(documentForMusician(row.musician.id))">Annuler</button>
+                        <button v-if="['GENERATED', 'SENT'].includes(documentForMusician(row.musician.id).status)" @click="correctFinalDocument(documentForMusician(row.musician.id))">Corriger</button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -3180,7 +3596,10 @@ const app = createApp({
                 <h2>Demandes de facture professeurs</h2>
                 <span>{{ teacherInvoiceRequestDocuments.length || teacherBillingSections.length }} demandes</span>
               </div>
-              <button v-if="can('BILLING_PRINT')" class="primary-button" @click="prepareAllTeacherInvoiceRequests">Préparer les demandes</button>
+              <div class="document-actions">
+                <button v-if="can('BILLING_PRINT')" class="primary-button" @click="prepareAllTeacherInvoiceRequests">Prévisualiser les demandes</button>
+                <button v-if="can('BILLING_PRINT') && teacherInvoiceRequestDocuments.some(document => document.status === 'DRAFT')" class="danger-outline-button" @click="finalizeAllTeacherInvoiceRequests">Valider définitivement</button>
+              </div>
             </div>
             <div class="teacher-billing-list">
               <article v-for="section in teacherBillingSections" :key="section.teacher.id" class="teacher-billing-card">
@@ -3190,10 +3609,16 @@ const app = createApp({
                     <span>{{ section.teacher.instrument }}</span>
                   </div>
                   <div class="document-actions">
-                    <strong>{{ section.totalHours.toFixed(2) }} h - {{ money(section.totalAmount) }}</strong>
-                    <a v-if="documentForTeacher(section.teacher.id)" class="document-link" href="#" @click.prevent="downloadDocument(documentForTeacher(section.teacher.id))">
-                      PDF
+                    <strong>{{ section.totalHours.toFixed(2) }} h - {{ billingMoney(section.totalAmount) }}</strong>
+                    <a v-if="documentForTeacher(section.teacher.id)?.fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForTeacher(section.teacher.id))">
+                      PDF · {{ documentStatusLabel(documentForTeacher(section.teacher.id).status) }}
                     </a>
+                    <span v-else-if="documentForTeacher(section.teacher.id)" class="muted">Brouillon à régénérer</span>
+                    <div v-if="documentForTeacher(section.teacher.id) && can('BILLING_PRINT')" class="document-row-actions">
+                      <button v-if="documentForTeacher(section.teacher.id).status === 'GENERATED'" @click="markDocumentSent(documentForTeacher(section.teacher.id))">Marquer envoyé</button>
+                      <button v-if="documentForTeacher(section.teacher.id).status === 'GENERATED'" @click="cancelFinalDocument(documentForTeacher(section.teacher.id))">Annuler</button>
+                      <button v-if="['GENERATED', 'SENT'].includes(documentForTeacher(section.teacher.id).status)" @click="correctFinalDocument(documentForTeacher(section.teacher.id))">Corriger</button>
+                    </div>
                   </div>
                 </div>
                 <div class="attendance-table-wrap">
@@ -3209,11 +3634,20 @@ const app = createApp({
                       <tr v-for="row in section.rows" :key="row.key">
                         <td><strong>{{ row.dateLabel }}</strong></td>
                         <td class="num">{{ row.hours.toFixed(2) }} h</td>
-                        <td class="num">{{ money(row.totalAmount) }}</td>
+                        <td class="num">{{ billingMoney(row.totalAmount) }}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
+              </article>
+            </div>
+          </section>
+          <section v-if="documentHistory.length" class="panel">
+            <div class="panel-head"><div><h2>Historique des corrections</h2><span>Les originaux et avoirs restent consultables</span></div></div>
+            <div class="document-history-list">
+              <article v-for="document in documentHistory" :key="document.id">
+                <div><strong>{{ document.documentNumber }}</strong><span>{{ documentStatusLabel(document.status) }} · {{ document.correctionReason }}</span></div>
+                <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">PDF</a>
               </article>
             </div>
           </section>
@@ -3235,15 +3669,35 @@ const app = createApp({
             <div class="panel-head">
               <div>
                 <h2>Import JSON</h2>
-                <span>Restauration complète sur le serveur cible</span>
+                <span>Analyse obligatoire avant toute restauration</span>
               </div>
-              <button class="primary-button" @click="importData" :disabled="!selectedImportFile">Importer</button>
+              <button class="primary-button" @click="analyzeImport" :disabled="!selectedImportFile">Analyser le fichier</button>
             </div>
             <div class="api-form">
               <input type="file" accept="application/json,.json" @change="selectImportFile" />
             </div>
-            <p class="form-warning">L'import remplace les données métier existantes du serveur cible. Les factures PDF devront être régénérées après import.</p>
+            <p class="form-warning">Aucune donnée n’est modifiée pendant l’analyse. L’import final remplacera toutes les données métier dans une transaction unique.</p>
             <p v-if="selectedImportFile" class="success-note">Fichier sélectionné: {{ selectedImportFile.name }}</p>
+
+            <div v-if="importAnalysis" class="import-analysis" :class="{ invalid: !importAnalysis.valid }">
+              <div class="import-analysis-head">
+                <strong>{{ importAnalysis.valid ? 'Analyse réussie' : 'Import refusé' }}</strong>
+                <span>{{ importAnalysis.valid ? 'Toutes les références sont cohérentes.' : importAnalysis.errors.length + ' erreur(s) à corriger.' }}</span>
+              </div>
+              <ul v-if="!importAnalysis.valid" class="import-errors">
+                <li v-for="error in importAnalysis.errors" :key="error">{{ error }}</li>
+              </ul>
+              <div v-else class="import-impact-grid">
+                <article><span>Données actuelles supprimées</span><strong>{{ importAnalysis.current.musicians }} musiciens · {{ importAnalysis.current.attendance }} présences · {{ importAnalysis.current.documents }} documents</strong></article>
+                <article><span>Données importées</span><strong>{{ importAnalysis.incoming.musicians }} musiciens · {{ importAnalysis.incoming.attendance }} présences · {{ importAnalysis.incoming.documents }} document</strong></article>
+              </div>
+              <div v-if="importAnalysis.valid" class="import-confirmation">
+                <label for="import-confirmation">Saisissez <code>{{ importAnalysis.confirmationValue }}</code> pour confirmer</label>
+                <input id="import-confirmation" v-model="importConfirmation" autocomplete="off" />
+                <button class="danger-outline-button" @click="importData" :disabled="importConfirmation !== importAnalysis.confirmationValue">Remplacer toutes les données</button>
+                <small>Une sauvegarde JSON automatique sera créée par le serveur avant le remplacement.</small>
+              </div>
+            </div>
           </section>
         </section>
 
@@ -3547,6 +4001,38 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'settings' && !mustChangePassword && canAccessSettings" class="view-stack">
+          <section class="panel lifecycle-panel">
+            <div>
+              <span class="eyebrow">Cycle comptable {{ state.settings.year }}</span>
+              <h2>{{ yearStatusLabel }}</h2>
+              <p v-if="yearStatus === 'OPEN'" class="muted">Configuration, présences, dépenses et documents modifiables.</p>
+              <p v-else-if="yearStatus === 'REVIEWED'" class="muted">Configuration verrouillée ; présences, dépenses et émission encore disponibles.</p>
+              <p v-else class="muted">Année définitivement clôturée ; toutes les données annuelles sont en lecture seule.</p>
+            </div>
+            <div v-if="can('CONFIG_TERMS')" class="lifecycle-actions">
+              <button v-if="yearStatus === 'OPEN'" class="primary-button" @click="updateYearStatus('REVIEWED')">Passer en revue</button>
+              <button v-if="yearStatus === 'REVIEWED'" class="ghost-button" @click="updateYearStatus('OPEN')">Rouvrir</button>
+              <button v-if="yearStatus === 'REVIEWED'" class="danger-button" @click="updateYearStatus('CLOSED')">Clôturer définitivement</button>
+              <span v-if="yearStatus === 'CLOSED'" class="status-pill closed">Clôturée</span>
+            </div>
+          </section>
+          <section v-if="can('CONFIG_TERMS')" class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Nouvelle année comptable</h2>
+                <span>Copier groupes, adhésions, cours, tarifs et trimestres sans modifier l'année source</span>
+              </div>
+            </div>
+            <div class="api-form">
+              <label>
+                Année source
+                <input type="number" v-model.number="copySourceYear" min="2000" max="2100" />
+              </label>
+              <strong>→ {{ state.settings.year }}</strong>
+              <button class="primary-button" @click="copyAnnualConfiguration">Copier la configuration</button>
+            </div>
+            <p class="muted">La copie est autorisée uniquement si l'année cible ne contient encore aucun groupe ni cours individuel.</p>
+          </section>
           <section v-if="can('CONFIG_TEACHER')" class="panel">
             <div class="panel-head">
               <div>
@@ -3632,6 +4118,14 @@ const app = createApp({
                 Cotisation groupe annuelle
                 <input type="number" v-model.number="state.settings.groupMembershipFee" min="0" step="1" />
               </label>
+              <label>
+                Durée d’un cours individuel (heures)
+                <input type="number" v-model.number="state.settings.individualCourseHours" min="0.01" max="24" step="0.05" :disabled="yearStatus !== 'OPEN'" />
+              </label>
+              <label>
+                Durée d’un atelier (heures)
+                <input type="number" v-model.number="state.settings.workshopHours" min="0.01" max="24" step="0.05" :disabled="yearStatus !== 'OPEN'" />
+              </label>
             </div>
           </section>
 
@@ -3681,6 +4175,27 @@ const app = createApp({
                 </div>
               </div>
             </div>
+          </section>
+
+          <section v-if="can('CONFIG_TERMS')" class="panel">
+            <div class="panel-head">
+              <div><h2>Journal d’audit</h2><span>Événements comptables immuables</span></div>
+              <button class="ghost-button" @click="loadAuditEvents">Actualiser</button>
+            </div>
+            <div v-if="auditEvents.length" class="attendance-table-wrap">
+              <table>
+                <thead><tr><th>Date</th><th>Utilisateur</th><th>Ressource</th><th>Action</th></tr></thead>
+                <tbody>
+                  <tr v-for="event in auditEvents" :key="event.id">
+                    <td>{{ new Date(event.createdAt).toLocaleString('fr-FR') }}</td>
+                    <td><code>{{ event.userId }}</code></td>
+                    <td>{{ event.entityType }}</td>
+                    <td>{{ auditActionLabel(event.action) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="muted">Cliquez sur « Actualiser » pour charger les derniers événements.</p>
           </section>
 
           <section class="panel">
