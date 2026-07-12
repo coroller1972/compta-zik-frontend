@@ -31,7 +31,7 @@ const EXPENSE_CATEGORIES = [
   { value: "CONCERT", label: "Concert" },
   { value: "OTHER", label: "Autre" },
 ];
-const CONFIG_PERMISSIONS = ["CONFIG_TEACHER", "CONFIG_FINANCIALS", "CONFIG_TERMS", "CONFIG_HOLIDAYS"];
+const CONFIG_PERMISSIONS = ["CONFIG_TEACHER", "CONFIG_FINANCIALS", "CONFIG_TERMS", "CONFIG_HOLIDAYS", "CONFIG_AUDIT"];
 const BUSINESS_READ_PERMISSIONS = ["PRESENCE_READ", "MUSICIENS_READ", "GROUPS_READ", "EXPENSES_READ", "BILLING_READ"];
 
 const demoState = {
@@ -2426,6 +2426,12 @@ const app = createApp({
       return { CREATED: "Création", UPDATED: "Modification", DELETED: "Suppression", SETTINGS_UPDATED: "Configuration modifiée", STATUS_CHANGED: "Cycle modifié", SENT: "Document envoyé", CANCELLED: "Document annulé", CORRECTED: "Document corrigé" }[action] || action;
     }
 
+    function auditUserLabel(event) {
+      if (!event?.userId) return "Système";
+      if (event.userId === currentUser.value?.id) return currentUser.value.displayName || currentUser.value.username;
+      return event.userId;
+    }
+
     selectGroup(selectedGroupId.value);
     watch(selectedTermId, () => {
       preparedStudentInvoices.value = false;
@@ -2651,6 +2657,7 @@ const app = createApp({
       importData,
       loadAuditEvents,
       auditActionLabel,
+      auditUserLabel,
     };
   },
   template: `
@@ -4018,7 +4025,7 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'settings' && !mustChangePassword && canAccessSettings" class="view-stack">
-          <section class="panel lifecycle-panel">
+          <section v-if="can('CONFIG_FINANCIALS')" class="panel lifecycle-panel">
             <div>
               <span class="eyebrow">Cycle comptable {{ state.settings.year }}</span>
               <h2>{{ yearStatusLabel }}</h2>
@@ -4026,14 +4033,14 @@ const app = createApp({
               <p v-else-if="yearStatus === 'REVIEWED'" class="muted">Configuration verrouillée ; présences, dépenses et émission encore disponibles.</p>
               <p v-else class="muted">Année définitivement clôturée ; toutes les données annuelles sont en lecture seule.</p>
             </div>
-            <div v-if="can('CONFIG_TERMS')" class="lifecycle-actions">
+            <div class="lifecycle-actions">
               <button v-if="yearStatus === 'OPEN'" class="primary-button" @click="updateYearStatus('REVIEWED')">Passer en revue</button>
               <button v-if="yearStatus === 'REVIEWED'" class="ghost-button" @click="updateYearStatus('OPEN')">Rouvrir</button>
               <button v-if="yearStatus === 'REVIEWED'" class="danger-button" @click="updateYearStatus('CLOSED')">Clôturer définitivement</button>
               <span v-if="yearStatus === 'CLOSED'" class="status-pill closed">Clôturée</span>
             </div>
           </section>
-          <section v-if="can('CONFIG_TERMS')" class="panel">
+          <section v-if="can('CONFIG_FINANCIALS')" class="panel">
             <div class="panel-head">
               <div>
                 <h2>Nouvelle année comptable</h2>
@@ -4194,7 +4201,7 @@ const app = createApp({
             </div>
           </section>
 
-          <section v-if="can('CONFIG_TERMS')" class="panel">
+          <section v-if="can('CONFIG_AUDIT')" class="panel">
             <div class="panel-head">
               <div><h2>Journal d’audit</h2><span>Événements comptables immuables</span></div>
               <button class="ghost-button" @click="loadAuditEvents">Actualiser</button>
@@ -4205,7 +4212,7 @@ const app = createApp({
                 <tbody>
                   <tr v-for="event in auditEvents" :key="event.id">
                     <td>{{ new Date(event.createdAt).toLocaleString('fr-FR') }}</td>
-                    <td><code>{{ event.userId }}</code></td>
+                    <td>{{ auditUserLabel(event) }}</td>
                     <td>{{ event.entityType }}</td>
                     <td>{{ auditActionLabel(event.action) }}</td>
                   </tr>
