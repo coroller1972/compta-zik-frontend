@@ -1411,21 +1411,29 @@ const app = createApp({
       }
     }
 
-    async function prepareAllTeacherInvoiceRequests() {
+    function upsertTeacherInvoiceRequestDocument(document) {
+      const index = teacherInvoiceRequestDocuments.value.findIndex((item) => item.teacherId === document.teacherId);
+      if (index >= 0) {
+        teacherInvoiceRequestDocuments.value.splice(index, 1, document);
+      } else {
+        teacherInvoiceRequestDocuments.value.push(document);
+      }
+    }
+
+    async function prepareTeacherInvoiceRequest(teacherId) {
       if (!can("BILLING_PRINT")) return;
       if (!ensureYearNotClosed("L'émission est verrouillée")) return;
-      const documents = await requestResource(
+      const teacher = teachersById.value[teacherId];
+      const document = await requestResource(
         "POST",
-        `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests`,
+        `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/${teacherId}/prepare`,
         null,
         {
-          successMessage: "Demandes professeurs générées",
-          errorMessage: "Demandes professeurs non générées côté backend",
+          successMessage: `Demande de ${teacher ? fullName(teacher) : "facturation"} prévisualisée`,
+          errorMessage: "Demande non générée côté backend",
         },
       );
-      if (documents) {
-        teacherInvoiceRequestDocuments.value = documents;
-      }
+      if (document) upsertTeacherInvoiceRequestDocument(document);
     }
 
     async function finalizeAllStudentInvoices() {
@@ -1438,14 +1446,16 @@ const app = createApp({
       if (documents) studentInvoiceDocuments.value = documents;
     }
 
-    async function finalizeAllTeacherInvoiceRequests() {
+    async function finalizeTeacherInvoiceRequest(teacherId) {
       if (!can("BILLING_PRINT") || !ensureYearNotClosed("La validation est verrouillée")) return;
-      if (!window.confirm("Valider définitivement toutes les demandes professeurs de ce trimestre ? Elles ne pourront plus être régénérées.")) return;
-      const documents = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/finalize`, null, {
-        successMessage: "Demandes professeurs validées définitivement",
+      const teacher = teachersById.value[teacherId];
+      const teacherName = teacher ? fullName(teacher) : "ce prestataire";
+      if (!window.confirm(`Valider définitivement la demande de ${teacherName} ? Elle ne pourra plus être régénérée.`)) return;
+      const document = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/${teacherId}/finalize`, null, {
+        successMessage: `Demande de ${teacherName} validée définitivement`,
         errorMessage: "Validation définitive impossible",
       });
-      if (documents) teacherInvoiceRequestDocuments.value = documents;
+      if (document) upsertTeacherInvoiceRequestDocument(document);
     }
 
     function documentDownloadUrl(document) {
@@ -2608,9 +2618,9 @@ const app = createApp({
       saveExpense,
       deleteExpense,
       prepareAllStudentInvoices,
-      prepareAllTeacherInvoiceRequests,
+      prepareTeacherInvoiceRequest,
       finalizeAllStudentInvoices,
-      finalizeAllTeacherInvoiceRequests,
+      finalizeTeacherInvoiceRequest,
       documentDownloadUrl,
       downloadDocument,
       documentForMusician,
@@ -3621,8 +3631,7 @@ const app = createApp({
                 <span>{{ teacherInvoiceRequestDocuments.length || teacherBillingSections.length }} demandes</span>
               </div>
               <div class="document-actions">
-                <button v-if="can('BILLING_PRINT')" class="primary-button" @click="prepareAllTeacherInvoiceRequests">Prévisualiser les demandes</button>
-                <button v-if="can('BILLING_PRINT') && teacherInvoiceRequestDocuments.some(document => document.status === 'DRAFT')" class="danger-outline-button" @click="finalizeAllTeacherInvoiceRequests">Valider définitivement</button>
+                <span class="muted">Prévisualisation et validation par prestataire</span>
               </div>
             </div>
             <div class="teacher-billing-list">
@@ -3638,6 +3647,18 @@ const app = createApp({
                       PDF · {{ documentStatusLabel(documentForTeacher(section.teacher.id).status) }}
                     </a>
                     <span v-else-if="documentForTeacher(section.teacher.id)" class="muted">Brouillon à régénérer</span>
+                    <div v-if="can('BILLING_PRINT')" class="document-actions">
+                      <button
+                        v-if="!documentForTeacher(section.teacher.id) || documentForTeacher(section.teacher.id).status === 'DRAFT'"
+                        class="ghost-button"
+                        @click="prepareTeacherInvoiceRequest(section.teacher.id)"
+                      >{{ documentForTeacher(section.teacher.id) ? 'Régénérer le brouillon' : 'Prévisualiser' }}</button>
+                      <button
+                        v-if="documentForTeacher(section.teacher.id)?.status === 'DRAFT'"
+                        class="danger-outline-button"
+                        @click="finalizeTeacherInvoiceRequest(section.teacher.id)"
+                      >Valider cette demande</button>
+                    </div>
                     <div v-if="documentForTeacher(section.teacher.id) && can('BILLING_PRINT')" class="document-row-actions">
                       <button v-if="documentForTeacher(section.teacher.id).status === 'GENERATED'" @click="markDocumentSent(documentForTeacher(section.teacher.id))">Marquer envoyé</button>
                       <button v-if="documentForTeacher(section.teacher.id).status === 'GENERATED'" @click="cancelFinalDocument(documentForTeacher(section.teacher.id))">Annuler</button>
@@ -3649,13 +3670,15 @@ const app = createApp({
                   <table>
                     <thead>
                       <tr>
-                        <th>Date</th>
+                        <th>Semaine</th>
+                        <th>Début de semaine</th>
                         <th class="num">Nombre d'heures</th>
                         <th class="num">Montant</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr v-for="row in section.rows" :key="row.key">
+                        <td><strong>S{{ row.week }}</strong></td>
                         <td><strong>{{ row.dateLabel }}</strong></td>
                         <td class="num">{{ row.hours.toFixed(2) }} h</td>
                         <td class="num">{{ billingMoney(row.totalAmount) }}</td>
