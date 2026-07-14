@@ -270,11 +270,17 @@ function firstDayOfBusinessWeek(year, week) {
   return date;
 }
 
+function countLabel(count, singular, plural = `${singular}s`) {
+  const normalizedCount = Number(count) || 0;
+  return `${normalizedCount} ${normalizedCount === 1 ? singular : plural}`;
+}
+
 const app = createApp({
   setup() {
     const state = reactive(structuredClone(demoState));
     const selectedTermId = ref("t1");
     const activeView = ref("dashboard");
+    const billingTab = ref("students");
     const authSession = ref(loadStoredAuthSession());
     const apiStatus = ref(authSession.value ? "connecté" : "déconnecté");
     const currentUser = ref(normalizeAuthUser(authSession.value?.user));
@@ -323,6 +329,8 @@ const app = createApp({
     const attendanceTeacherFilterId = ref("");
     const editingMusicianId = ref(null);
     const editingTeacherId = ref(null);
+    const musicianFormOpen = ref(false);
+    const teacherFormOpen = ref(false);
     const editingExpenseId = ref(null);
     const teacherForm = reactive({
       firstName: "",
@@ -431,6 +439,14 @@ const app = createApp({
     const isPasswordChangeReady = computed(
       () => Boolean(passwordForm.currentPassword) && isNewPasswordValid.value && isPasswordConfirmationValid.value,
     );
+    const passwordChangeHelp = computed(() => {
+      if (!passwordForm.currentPassword) return "Renseignez le mot de passe actuel pour continuer.";
+      if (!isNewPasswordValid.value) return "Respectez les cinq contraintes du nouveau mot de passe.";
+      if (!passwordForm.confirmPassword) return "Confirmez le nouveau mot de passe.";
+      if (!isPasswordConfirmationValid.value) return "La confirmation doit être identique au nouveau mot de passe.";
+      return "Le mot de passe peut être modifié.";
+    });
+    const viewUsesTerm = computed(() => ["dashboard", "attendance", "signatures", "people", "billing"].includes(activeView.value));
 
     const filteredMusicians = computed(() => {
       const q = search.value.trim().toLowerCase();
@@ -1033,6 +1049,7 @@ const app = createApp({
 
     function resetMusicianForm() {
       editingMusicianId.value = null;
+      musicianFormOpen.value = false;
       Object.assign(musicianForm, {
         firstName: "",
         lastName: "",
@@ -1051,8 +1068,14 @@ const app = createApp({
       musicianBandToAddId.value = musicianAvailableBands.value[0]?.id || "";
     }
 
+    function startNewMusician() {
+      resetMusicianForm();
+      musicianFormOpen.value = true;
+    }
+
     function resetTeacherForm() {
       editingTeacherId.value = null;
+      teacherFormOpen.value = false;
       Object.assign(teacherForm, {
         firstName: "",
         lastName: "",
@@ -1061,9 +1084,15 @@ const app = createApp({
       });
     }
 
+    function startNewTeacher() {
+      resetTeacherForm();
+      teacherFormOpen.value = true;
+    }
+
     function editTeacher(teacher) {
       if (!can("CONFIG_TEACHER")) return;
       editingTeacherId.value = teacher.id;
+      teacherFormOpen.value = true;
       Object.assign(teacherForm, {
         firstName: teacher.firstName,
         lastName: teacher.lastName,
@@ -1136,6 +1165,7 @@ const app = createApp({
       const course = state.individualCourses.find((item) => item.musicianId === musician.id);
       const workshopBand = workshopBands.value.find((band) => band.memberIds.includes(musician.id));
       editingMusicianId.value = musician.id;
+      musicianFormOpen.value = true;
       Object.assign(musicianForm, {
         firstName: musician.firstName,
         lastName: musician.lastName,
@@ -1810,6 +1840,11 @@ const app = createApp({
     function openAccountView() {
       activeView.value = "account";
       if (!mustChangePassword.value) loadAuthAdministration();
+    }
+
+    function openBilling(tab = billingTab.value) {
+      billingTab.value = tab;
+      activeView.value = "billing";
     }
 
     function normalizeAuthRoleSelection(roles) {
@@ -2720,6 +2755,7 @@ const app = createApp({
       mustChangePassword,
       isPasswordConfirmationValid,
       isPasswordChangeReady,
+      passwordChangeHelp,
       userAdminForm,
       authUserEditForm,
       editingAuthUserId,
@@ -2744,6 +2780,9 @@ const app = createApp({
       authUserAvatarUrl,
       pageTitle,
       openAccountView,
+      openBilling,
+      billingTab,
+      viewUsesTerm,
       search,
       groupSearch,
       selectedGroupId,
@@ -2782,6 +2821,8 @@ const app = createApp({
       expenseForm,
       editingMusicianId,
       editingTeacherId,
+      musicianFormOpen,
+      teacherFormOpen,
       editingExpenseId,
       workshopBands,
       independentBands,
@@ -2837,6 +2878,7 @@ const app = createApp({
       removeHolidayWeek,
       saveSettings,
       resetMusicianForm,
+      startNewMusician,
       editMusician,
       addMusicianBand,
       removeMusicianBand,
@@ -2844,6 +2886,7 @@ const app = createApp({
       deleteMusician,
       restoreMusician,
       resetTeacherForm,
+      startNewTeacher,
       editTeacher,
       saveTeacher,
       deleteTeacher,
@@ -2916,6 +2959,7 @@ const app = createApp({
       loadAuditEvents,
       auditActionLabel,
       auditUserLabel,
+      countLabel,
     };
   },
   template: `
@@ -3031,7 +3075,7 @@ const app = createApp({
             </div>
           </div>
           <div class="login-password-actions">
-            <button class="primary-button login-submit" type="submit" :disabled="!isPasswordChangeReady">Changer le mot de passe</button>
+            <button class="primary-button login-submit" type="submit" :disabled="!isPasswordChangeReady" :title="isPasswordChangeReady ? '' : passwordChangeHelp">Changer le mot de passe</button>
             <button class="ghost-button" type="button" @click="logout">Se déconnecter</button>
           </div>
         </form>
@@ -3103,7 +3147,7 @@ const app = createApp({
           <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" :class="{ active: activeView === 'slots' }" @click="activeView = 'slots'">Créneaux</button>
           <button v-if="!mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" :class="{ active: activeView === 'groups' }" @click="activeView = 'groups'">Groupes</button>
           <button v-if="!mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" :class="{ active: activeView === 'expenses' }" @click="activeView = 'expenses'">Dépenses</button>
-          <button v-if="!mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" :class="{ active: activeView === 'billing' }" @click="activeView = 'billing'">Facturation</button>
+          <button v-if="!mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" :class="{ active: activeView === 'billing' }" @click="openBilling()">Facturation</button>
           <button v-if="!mustChangePassword && can('IMPORT_EXPORT')" :class="{ active: activeView === 'data-transfer' }" @click="activeView = 'data-transfer'">Import / Export</button>
           <button v-if="canUseAccount" :class="{ active: activeView === 'account' }" @click="openAccountView">Compte</button>
           <button v-if="!mustChangePassword && canAccessSettings" :class="{ active: activeView === 'settings' }" @click="activeView = 'settings'">Configuration</button>
@@ -3134,7 +3178,7 @@ const app = createApp({
             <p v-if="activeView === 'dashboard'" class="dashboard-date">Situation consolidée au {{ dashboardDateLabel }}</p>
           </div>
           <div class="topbar-actions">
-            <div class="term-control">
+            <div v-if="viewUsesTerm" class="term-control">
               <label for="term">Période</label>
               <select id="term" v-model="selectedTermId">
                 <option v-for="term in state.settings.terms" :key="term.id" :value="term.id">
@@ -3145,7 +3189,7 @@ const app = createApp({
             <button
               v-if="activeView === 'dashboard' && canAny(['BILLING_READ', 'BILLING_PRINT'])"
               class="primary-button billing-review-button"
-              @click="activeView = 'billing'"
+              @click="openBilling('providers')"
             >
               Préparer la facturation
             </button>
@@ -3299,7 +3343,7 @@ const app = createApp({
                     <i class="issued" :style="{ width: activity.issuedPercent + '%' }"></i>
                   </span>
                 </div>
-                <button v-if="canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="provider-billing-link" @click="activeView = 'billing'">Facturation</button>
+                <button v-if="canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="provider-billing-link" @click="openBilling('providers')">Facturation</button>
               </article>
             </div>
             <div v-else class="provider-activity-empty">
@@ -3477,7 +3521,7 @@ const app = createApp({
           <section class="panel">
             <div class="panel-head">
               <div>
-                <h2>Créneaux individuels</h2>
+                <h2>Planning hebdomadaire</h2>
                 <span>Demi-heures entre 11h30-14h00 et 16h30-18h00</span>
               </div>
             </div>
@@ -3509,12 +3553,13 @@ const app = createApp({
           <section v-if="can('MUSICIENS_WRITE')" id="musician-editor-panel" class="panel">
             <div class="panel-head">
               <div>
-                <h2>{{ editingMusicianId ? 'Éditer un musicien' : 'Créer un musicien' }}</h2>
-                <span>Groupes multiples et cours individuel optionnel</span>
+                <h2>{{ musicianFormOpen ? (editingMusicianId ? 'Éditer un musicien' : 'Créer un musicien') : 'Gestion des musiciens' }}</h2>
+                <span>{{ musicianFormOpen ? 'Groupes multiples et cours individuel optionnel' : 'Ouvrez le formulaire uniquement lorsque vous en avez besoin' }}</span>
               </div>
-              <button class="ghost-button" @click="resetMusicianForm">Nouveau</button>
+              <button class="ghost-button" @click="startNewMusician">Nouveau musicien</button>
             </div>
 
+            <div v-if="musicianFormOpen" class="collapsible-editor">
             <div class="musician-editor">
               <label>
                 Prénom
@@ -3604,6 +3649,7 @@ const app = createApp({
                 {{ editingMusicianId ? 'Enregistrer' : 'Créer le musicien' }}
               </button>
               <button class="ghost-button" @click="resetMusicianForm">Annuler</button>
+            </div>
             </div>
           </section>
 
@@ -3876,7 +3922,29 @@ const app = createApp({
             <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Calcul comptable non chargé.') }}</span>
             <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
           </div>
-          <section class="panel">
+          <div class="billing-tabs" role="tablist" aria-label="Sections de facturation">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="billingTab === 'students'"
+              :class="['billing-tab', { active: billingTab === 'students' }]"
+              @click="billingTab = 'students'"
+            >
+              Factures élèves
+              <span>{{ studentInvoiceDocuments.length || billableStudentRows.length }}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="billingTab === 'providers'"
+              :class="['billing-tab', { active: billingTab === 'providers' }]"
+              @click="billingTab = 'providers'"
+            >
+              Demandes prestataires
+              <span>{{ teacherInvoiceRequestDocuments.length || teacherBillingSections.length }}</span>
+            </button>
+          </div>
+          <section v-if="billingTab === 'students'" class="panel">
             <div class="panel-head">
               <div>
                 <h2>Factures élèves</h2>
@@ -3940,11 +4008,11 @@ const app = createApp({
               </table>
             </div>
           </section>
-          <section class="panel">
+          <section v-if="billingTab === 'providers'" class="panel">
             <div class="panel-head">
               <div>
                 <h2>Demandes de facture prestataires</h2>
-                <span>{{ teacherInvoiceRequestDocuments.length || teacherBillingSections.length }} demandes</span>
+                <span>{{ countLabel(teacherInvoiceRequestDocuments.length || teacherBillingSections.length, 'demande') }}</span>
               </div>
               <div class="document-actions">
                 <span class="muted">Prévisualisation et validation par prestataire</span>
@@ -4058,13 +4126,19 @@ const app = createApp({
                 <h2>Import JSON</h2>
                 <span>Analyse obligatoire avant toute restauration</span>
               </div>
-              <button class="primary-button" @click="analyzeImport" :disabled="!selectedImportFile">Analyser le fichier</button>
+              <button class="primary-button" @click="analyzeImport" :disabled="!selectedImportFile" :title="selectedImportFile ? '' : 'Sélectionnez d’abord un fichier JSON.'">Analyser le fichier</button>
             </div>
-            <div class="api-form">
-              <input type="file" accept="application/json,.json" @change="selectImportFile" />
+            <div class="premium-file-row">
+              <label class="premium-file-picker">
+                <input class="visually-hidden-file" type="file" accept="application/json,.json" @change="selectImportFile" />
+                <span class="premium-file-button">Choisir un fichier JSON</span>
+                <span class="premium-file-name">{{ selectedImportFile?.name || 'Aucun fichier sélectionné' }}</span>
+              </label>
+              <small class="form-help" :class="{ ready: selectedImportFile }">
+                {{ selectedImportFile ? 'Le fichier est prêt à être analysé.' : 'Sélectionnez un export JSON pour activer l’analyse.' }}
+              </small>
             </div>
             <p class="form-warning">Aucune donnée n’est modifiée pendant l’analyse. L’import final remplacera toutes les données métier dans une transaction unique.</p>
-            <p v-if="selectedImportFile" class="success-note">Fichier sélectionné: {{ selectedImportFile.name }}</p>
 
             <div v-if="importAnalysis" class="import-analysis" :class="{ invalid: !importAnalysis.valid }">
               <div class="import-analysis-head">
@@ -4125,10 +4199,15 @@ const app = createApp({
               </div>
             </div>
             <div class="form-actions">
-              <input type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatarFile" />
-              <button class="ghost-button" @click="uploadAvatar" :disabled="!avatarFile">Changer l'avatar</button>
-              <button class="ghost-button danger-button" @click="deleteAvatar" :disabled="!currentUser?.avatar">Supprimer l'avatar</button>
+              <label class="premium-file-picker avatar-file-picker">
+                <input class="visually-hidden-file" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatarFile" />
+                <span class="premium-file-button">Choisir une image</span>
+                <span class="premium-file-name">{{ avatarFile?.name || 'Aucune image sélectionnée' }}</span>
+              </label>
+              <button class="ghost-button" @click="uploadAvatar" :disabled="!avatarFile" :title="avatarFile ? '' : 'Choisissez une image avant de changer l’avatar.'">Changer l'avatar</button>
+              <button class="ghost-button danger-button" @click="deleteAvatar" :disabled="!currentUser?.avatar" :title="currentUser?.avatar ? '' : 'Aucun avatar enregistré à supprimer.'">Supprimer l'avatar</button>
             </div>
+            <p class="form-help" :class="{ ready: avatarFile }">{{ avatarFile ? 'Image prête à être envoyée.' : 'Choisissez une image PNG, JPEG ou WebP pour activer le changement.' }}</p>
           </section>
 
           <section v-if="can('ACCOUNT_USER') || mustChangePassword" class="panel">
@@ -4137,7 +4216,7 @@ const app = createApp({
                 <h2>Mot de passe</h2>
                 <span>Modification de la session courante</span>
               </div>
-              <button class="primary-button" @click="changePassword" :disabled="!isPasswordChangeReady">Changer</button>
+              <button class="primary-button" @click="changePassword" :disabled="!isPasswordChangeReady" :title="isPasswordChangeReady ? '' : passwordChangeHelp">Changer</button>
             </div>
             <p v-if="mustChangePassword" class="form-warning password-required-note">Ce compte utilise un mot de passe temporaire. Choisis un nouveau mot de passe pour continuer.</p>
             <div class="password-grid">
@@ -4228,6 +4307,7 @@ const app = createApp({
                 {{ passwordForm.confirmPassword ? 'Confirmation identique' : 'Confirmez le nouveau mot de passe' }}
               </div>
             </div>
+            <p class="form-help password-action-help" :class="{ ready: isPasswordChangeReady }" aria-live="polite">{{ passwordChangeHelp }}</p>
           </section>
 
           <section v-if="!mustChangePassword && (canCreateUsers || canAdminUsers)" class="panel">
@@ -4426,8 +4506,9 @@ const app = createApp({
                 <h2>Professeurs</h2>
                 <span>Création et mise à jour des intervenants</span>
               </div>
-              <button class="ghost-button" @click="resetTeacherForm">Nouveau professeur</button>
+              <button class="ghost-button" @click="startNewTeacher">Nouveau professeur</button>
             </div>
+            <div v-if="teacherFormOpen" class="collapsible-editor compact-editor">
             <div class="form-grid">
               <label>
                 Prénom
@@ -4454,6 +4535,7 @@ const app = createApp({
                 {{ editingTeacherId ? 'Enregistrer' : 'Créer le professeur' }}
               </button>
               <button class="ghost-button" @click="resetTeacherForm">Annuler</button>
+            </div>
             </div>
             <table>
               <thead>
