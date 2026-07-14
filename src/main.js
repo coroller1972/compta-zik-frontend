@@ -141,6 +141,14 @@ function normalizeAuthUser(user) {
   };
 }
 
+function normalizeAttendanceEntries(attendance = []) {
+  return attendance.map((entry) => ({
+    ...entry,
+    entityType: apiAttendanceTypeToUi(entry.entityType),
+    status: entry.status || (entry.present ? "PRESENT" : "ABSENT"),
+  }));
+}
+
 function normalizeSnapshot(snapshot) {
   const settings = snapshot.settings || {};
   return {
@@ -162,11 +170,7 @@ function normalizeSnapshot(snapshot) {
       memberIds: uniqueIds(band.memberIds),
     })),
     individualCourses: (snapshot.individualCourses || []).map((course) => ({ active: true, sharedSlot: false, ...course })),
-    attendance: (snapshot.attendance || []).map((entry) => ({
-      ...entry,
-      entityType: apiAttendanceTypeToUi(entry.entityType),
-      status: entry.status || (entry.present ? "PRESENT" : "ABSENT"),
-    })),
+    attendance: normalizeAttendanceEntries(snapshot.attendance),
     expenses: (snapshot.expenses || []).map((expense) => ({ notes: "", ...expense, amount: Number(expense.amount) || 0 })),
   };
 }
@@ -197,6 +201,32 @@ function weeksForTerm(term) {
 
 function money(value) {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value || 0);
+}
+
+function hoursLabel(value) {
+  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(Number(value) || 0)} h`;
+}
+
+function isoWeekNumber(value) {
+  const date = new Date(value);
+  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = utcDate.getUTCDay() || 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utcDate.getUTCFullYear(), 0, 1));
+  return Math.ceil((((utcDate - yearStart) / 86400000) + 1) / 7);
+}
+
+function automaticTermForYear(terms, year, now = new Date()) {
+  const orderedTerms = [...(terms || [])].sort((left, right) => (
+    Number(left.displayOrder || left.startWeek) - Number(right.displayOrder || right.startWeek)
+  ));
+  if (!orderedTerms.length) return null;
+  if (Number(year) < now.getFullYear()) return orderedTerms[orderedTerms.length - 1];
+  if (Number(year) > now.getFullYear()) return orderedTerms[0];
+  const currentWeek = isoWeekNumber(now);
+  return orderedTerms.find((term) => currentWeek >= term.startWeek && currentWeek <= term.endWeek)
+    || [...orderedTerms].reverse().find((term) => currentWeek >= term.startWeek)
+    || orderedTerms[0];
 }
 
 function formatDate(value) {
@@ -268,8 +298,10 @@ const app = createApp({
     const studentInvoiceDocuments = ref([]);
     const studentInvoiceSummaryDocument = ref(null);
     const teacherInvoiceRequestDocuments = ref([]);
+    const teacherEndWeeks = reactive({});
     const documentHistory = ref([]);
     const billingSummary = ref(null);
+    const billingSummariesByTerm = ref({});
     const billingStatus = ref("idle");
     const billingError = ref("");
     let billingRequestSequence = 0;
@@ -359,6 +391,8 @@ const app = createApp({
     });
 
     const selectedTerm = computed(() => state.settings.terms.find((term) => term.id === selectedTermId.value) || state.settings.terms[0]);
+    const automaticTerm = computed(() => automaticTermForYear(state.settings.terms, state.settings.year));
+    const dashboardDateLabel = computed(() => FRENCH_DATE.format(new Date()));
     const yearStatus = computed(() => state.settings.status || "OPEN");
     const structureLocked = computed(() => yearStatus.value !== "OPEN");
     const yearClosed = computed(() => yearStatus.value === "CLOSED");
@@ -531,6 +565,94 @@ const app = createApp({
       ? totals.value.studentBilling + totals.value.groupFees
       : null);
 
+    const dashboardTerms = computed(() => [...state.settings.terms]
+      .sort((left, right) => Number(left.displayOrder || left.startWeek) - Number(right.displayOrder || right.startWeek))
+      .map((term) => {
+        const summary = billingSummariesByTerm.value[term.id];
+        const backendTotals = summary?.totals;
+        const expenses = state.expenses
+          .filter((expense) => {
+            const date = new Date(`${expense.date}T00:00:00`);
+            const week = isoWeekNumber(date);
+            return date.getFullYear() === Number(state.settings.year) && week >= term.startWeek && week <= term.endWeek;
+          })
+          .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+        return {
+          ...term,
+          studentBilling: backendTotals ? Number(backendTotals.studentBilling) + Number(backendTotals.groupFees) : 0,
+          teacherDue: backendTotals ? Number(backendTotals.teacherDue) : 0,
+          subsidy: backendTotals ? Number(backendTotals.subsidy) : 0,
+          expenses,
+          selected: term.id === selectedTermId.value,
+          automatic: term.id === automaticTerm.value?.id,
+        };
+      }));
+
+    const annualDashboardTotals = computed(() => ({
+      studentBilling: dashboardTerms.value.reduce((sum, term) => sum + term.studentBilling, 0),
+      teacherDue: dashboardTerms.value.reduce((sum, term) => sum + term.teacherDue, 0),
+      expenses: state.expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0),
+      subsidy: dashboardTerms.value.reduce((sum, term) => sum + term.subsidy, 0),
+    }));
+
+    const dashboardChartMaximum = computed(() => Math.max(
+      1,
+      ...dashboardTerms.value.flatMap((term) => [term.studentBilling, term.teacherDue, term.subsidy, term.expenses]),
+    ));
+
+    const dashboardOutflowTotal = computed(() => (
+      annualDashboardTotals.value.subsidy + annualDashboardTotals.value.expenses
+    ));
+
+    const dashboardSubsidyShare = computed(() => (
+      dashboardOutflowTotal.value > 0
+        ? (annualDashboardTotals.value.subsidy / dashboardOutflowTotal.value) * 100
+        : 0
+    ));
+
+    const dashboardDonutStyle = computed(() => ({
+      background: `conic-gradient(#123f49 0 ${dashboardSubsidyShare.value}%, #e98222 ${dashboardSubsidyShare.value}% 100%)`,
+    }));
+
+    const dashboardTeacherActivity = computed(() => (
+      billingSummariesByTerm.value[selectedTermId.value]?.teacherInvoiceRequests || []
+    ).map((request) => {
+      const teacher = teachersById.value[request.teacherId];
+      const issuedAmount = Number(request.issuedAmount ?? 0);
+      const remainingAmount = Number(request.remainingAmount ?? request.totalAmount ?? 0);
+      const totalToIssue = issuedAmount + Math.max(remainingAmount, 0);
+      return {
+        teacher,
+        teacherId: request.teacherId,
+        totalHours: Number(request.totalHours ?? 0),
+        issuedAmount,
+        remainingAmount,
+        issuedPercent: totalToIssue > 0 ? Math.min(100, Math.max(0, (issuedAmount / totalToIssue) * 100)) : 0,
+      };
+    })
+      .filter((activity) => activity.teacher)
+      .sort((left, right) => fullName(left.teacher).localeCompare(fullName(right.teacher), "fr")));
+
+    const dashboardTeacherActivityTotals = computed(() => dashboardTeacherActivity.value.reduce((totals, activity) => ({
+      hours: totals.hours + activity.totalHours,
+      issued: totals.issued + activity.issuedAmount,
+      remaining: totals.remaining + activity.remainingAmount,
+    }), { hours: 0, issued: 0, remaining: 0 }));
+
+    function dashboardBarHeight(value) {
+      if (!value) return "0%";
+      return `${Math.max(5, (Number(value) / dashboardChartMaximum.value) * 100)}%`;
+    }
+
+    function dashboardTermStatus(term) {
+      if (term.automatic) return "Actuel";
+      if (Number(state.settings.year) < new Date().getFullYear()) return "Réalisé";
+      if (Number(state.settings.year) > new Date().getFullYear()) return "À venir";
+      const currentWeek = isoWeekNumber(new Date());
+      if (term.startWeek > currentWeek) return "À venir";
+      return "Réalisé";
+    }
+
     const expenseRows = computed(() => [...state.expenses].sort((a, b) => (
       String(b.date).localeCompare(String(a.date)) || a.label.localeCompare(b.label, "fr")
     )));
@@ -584,6 +706,7 @@ const app = createApp({
     const mustChangePassword = computed(() => Boolean(currentUser.value?.mustChangePassword));
     const pageTitle = computed(() => {
       const labels = {
+        dashboard: `Vue annuelle ${state.settings.year}`,
         expenses: `Dépenses ${state.settings.year}`,
         account: "Compte utilisateur",
         people: "Musiciens",
@@ -650,8 +773,15 @@ const app = createApp({
         rows: teacherWeeklyRows.value.filter((row) => row.teacher.id === request.teacherId),
         totalHours: Number(request.totalHours),
         totalAmount: Number(request.totalAmount),
+        accruedAmount: Number(request.accruedAmount ?? request.totalAmount),
+        issuedAmount: Number(request.issuedAmount ?? 0),
+        pendingAdjustmentAmount: Number(request.pendingAdjustmentAmount ?? 0),
+        remainingAmount: Number(request.remainingAmount ?? request.totalAmount),
+        installmentsAvailable: request.installmentsAvailable !== false,
+        adjustments: request.adjustments || [],
+        endWeek: selectedTeacherEndWeek(request.teacherId),
       }))
-      .filter((section) => section.teacher && section.rows.length > 0));
+      .filter((section) => section.teacher));
 
     const signatureSheetSections = computed(() => state.teachers.map((teacher) => {
       const individualColumns = state.individualCourses
@@ -742,6 +872,17 @@ const app = createApp({
       return attendanceFor(entityType, entityId, week)?.status || "UNRECORDED";
     }
 
+    function isAttendanceLocked(entityType, entityId, week) {
+      return attendanceFor(entityType, entityId, week)?.billingLocked === true;
+    }
+
+    function attendanceTitle(entityType, entityId, week) {
+      const attendance = attendanceFor(entityType, entityId, week);
+      return attendance?.billingLocked
+        ? `Rémunérée par ${attendance.billingDocumentNumber || attendance.billingDocumentId}`
+        : attendanceStatus(entityType, entityId, week);
+    }
+
     function attendanceSymbol(entityType, entityId, week) {
       return { PRESENT: "1", ABSENT: "–", CANCELLED: "×" }[attendanceStatus(entityType, entityId, week)] || "";
     }
@@ -819,7 +960,7 @@ const app = createApp({
       });
       if (savedSettings) {
         state.settings = savedSettings;
-        selectedTermId.value = state.settings.terms[0]?.id || "";
+        selectedTermId.value = automaticTermForYear(state.settings.terms, state.settings.year)?.id || "";
       }
     }
 
@@ -858,6 +999,10 @@ const app = createApp({
     async function toggleAttendance(entityType, entityId, week) {
       if (!can("PRESENCE_WRITE")) return;
       if (!ensureYearNotClosed("Les présences sont verrouillées")) return;
+      if (isAttendanceLocked(entityType, entityId, week)) {
+        showToast(attendanceTitle(entityType, entityId, week), "warning");
+        return;
+      }
       const saveKey = attendanceSaveKey(entityType, entityId, week);
       if (savingAttendanceKeys.has(saveKey)) return;
       savingAttendanceKeys.add(saveKey);
@@ -1237,7 +1382,7 @@ const app = createApp({
     }
 
     function resetFormsAfterStateLoad() {
-      selectedTermId.value = state.settings.terms[0]?.id || "";
+      selectedTermId.value = automaticTermForYear(state.settings.terms, state.settings.year)?.id || "";
       resetMusicianForm();
       resetTeacherForm();
       resetExpenseForm();
@@ -1412,7 +1557,7 @@ const app = createApp({
     }
 
     function upsertTeacherInvoiceRequestDocument(document) {
-      const index = teacherInvoiceRequestDocuments.value.findIndex((item) => item.teacherId === document.teacherId);
+      const index = teacherInvoiceRequestDocuments.value.findIndex((item) => item.id === document.id);
       if (index >= 0) {
         teacherInvoiceRequestDocuments.value.splice(index, 1, document);
       } else {
@@ -1427,13 +1572,16 @@ const app = createApp({
       const document = await requestResource(
         "POST",
         `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/${teacherId}/prepare`,
-        null,
+        { endWeek: selectedTeacherEndWeek(teacherId) },
         {
           successMessage: `Demande de ${teacher ? fullName(teacher) : "facturation"} prévisualisée`,
           errorMessage: "Demande non générée côté backend",
         },
       );
-      if (document) upsertTeacherInvoiceRequestDocument(document);
+      if (document) {
+        upsertTeacherInvoiceRequestDocument(document);
+        await loadBillingSummary();
+      }
     }
 
     async function finalizeAllStudentInvoices() {
@@ -1450,12 +1598,18 @@ const app = createApp({
       if (!can("BILLING_PRINT") || !ensureYearNotClosed("La validation est verrouillée")) return;
       const teacher = teachersById.value[teacherId];
       const teacherName = teacher ? fullName(teacher) : "ce prestataire";
-      if (!window.confirm(`Valider définitivement la demande de ${teacherName} ? Elle ne pourra plus être régénérée.`)) return;
-      const document = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/${teacherId}/finalize`, null, {
-        successMessage: `Demande de ${teacherName} validée définitivement`,
+      const draft = draftForTeacher(teacherId);
+      if (!draft) return;
+      if (!window.confirm(`Valider la situation n°${draft.installmentNumber || 1} de ${teacherName} ? Les présences incluses seront verrouillées.`)) return;
+      const document = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/${teacherId}/finalize`, { documentId: draft.id, version: draft.version }, {
+        successMessage: `Situation de ${teacherName} validée`,
         errorMessage: "Validation définitive impossible",
       });
-      if (document) upsertTeacherInvoiceRequestDocument(document);
+      if (document) {
+        upsertTeacherInvoiceRequestDocument(document);
+        await loadBillingSummary();
+        await loadTermAttendance(state.settings.year, selectedTerm.value.id);
+      }
     }
 
     function documentDownloadUrl(document) {
@@ -1467,7 +1621,53 @@ const app = createApp({
     }
 
     function documentForTeacher(teacherId) {
-      return teacherInvoiceRequestDocuments.value.find((document) => document.teacherId === teacherId);
+      return draftForTeacher(teacherId) || documentsForTeacher(teacherId).find((document) => ["GENERATED", "SENT"].includes(document.status));
+    }
+
+    function documentsForTeacher(teacherId) {
+      return [...teacherInvoiceRequestDocuments.value, ...documentHistory.value]
+        .filter((document) => document.type === "TEACHER_INVOICE_REQUEST" && document.teacherId === teacherId)
+        .sort((left, right) => Number(right.installmentNumber || 0) - Number(left.installmentNumber || 0));
+    }
+
+    function draftForTeacher(teacherId) {
+      return teacherInvoiceRequestDocuments.value.find((document) => document.teacherId === teacherId && document.status === "DRAFT");
+    }
+
+    function finalizedDocumentsForTeacher(teacherId) {
+      return documentsForTeacher(teacherId).filter((document) => document.status !== "DRAFT");
+    }
+
+    function defaultTeacherEndWeek() {
+      const term = selectedTerm.value;
+      if (!term) return 1;
+      const now = new Date();
+      const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+      const currentWeek = Math.ceil((((now - start) / 86400000) + start.getUTCDay() + 1) / 7);
+      const proposed = state.settings.year === now.getUTCFullYear() ? currentWeek - 1 : term.endWeek;
+      return Math.max(term.startWeek, Math.min(term.endWeek, proposed));
+    }
+
+    function selectedTeacherEndWeek(teacherId) {
+      if (!teacherEndWeeks[teacherId]) teacherEndWeeks[teacherId] = defaultTeacherEndWeek();
+      return Number(teacherEndWeeks[teacherId]);
+    }
+
+    async function reportTeacherAdjustment(document) {
+      const amountText = window.prompt("Montant signé de l'écart (ex. 25,00 ou -25,00) :");
+      if (!amountText) return;
+      const amount = Number(amountText.replace(",", "."));
+      if (!Number.isFinite(amount) || amount === 0) return showToast("Le montant doit être non nul", "warning");
+      const reason = window.prompt("Motif de la régularisation :");
+      if (!reason?.trim()) return;
+      const result = await requestResource("POST", `documents/${document.id}/teacher-adjustments`, { amount, reason: reason.trim() }, { successMessage: "Écart reporté sur la prochaine situation", errorMessage: "Écart non enregistré" });
+      if (result) await loadBillingSummary();
+    }
+
+    async function deleteTeacherAdjustment(adjustment) {
+      if (!window.confirm("Supprimer cette régularisation en attente ?")) return;
+      const result = await requestResource("DELETE", `teacher-adjustments/${adjustment.id}`, null, { successMessage: "Régularisation supprimée", errorMessage: "Suppression impossible" });
+      if (result !== undefined) await loadBillingSummary();
     }
 
     function replaceLoadedDocument(updated) {
@@ -1725,6 +1925,7 @@ const app = createApp({
       const termId = selectedTerm.value?.id;
       if (!authSession.value?.accessToken || !termId || !canAny(["BILLING_READ", "BILLING_PRINT"])) {
         billingSummary.value = null;
+        billingSummariesByTerm.value = {};
         billingStatus.value = "idle";
         billingError.value = "";
         return;
@@ -1734,18 +1935,23 @@ const app = createApp({
       billingStatus.value = "loading";
       billingError.value = "";
       try {
-        const response = await apiFetch(`accounting-years/${year}/terms/${termId}/billing`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const summary = await response.json();
+        const summaries = await Promise.all(state.settings.terms.map(async (term) => {
+          const response = await apiFetch(`accounting-years/${year}/terms/${term.id}/billing`);
+          if (!response.ok) throw new Error(`HTTP ${response.status} for ${term.id}`);
+          return [term.id, await response.json()];
+        }));
         if (requestSequence !== billingRequestSequence) return;
-        billingSummary.value = summary;
+        billingSummariesByTerm.value = Object.fromEntries(summaries);
+        billingSummary.value = billingSummariesByTerm.value[termId] || null;
         billingStatus.value = "ready";
         apiStatus.value = "connecté";
         await loadTermDocuments(year, termId);
+        await loadTermAttendance(year, termId);
       } catch (error) {
         if (requestSequence !== billingRequestSequence) return;
         console.warn(`API GET billing for ${year}/${termId} failed`, error);
         billingSummary.value = null;
+        billingSummariesByTerm.value = {};
         billingStatus.value = "error";
         billingError.value = "Calcul comptable indisponible. Les montants ne sont pas recalculés dans le navigateur.";
       }
@@ -1763,6 +1969,18 @@ const app = createApp({
         documentHistory.value = documents.filter((document) => document.type === "CREDIT_NOTE" || ["CANCELLED", "CREDITED"].includes(document.status));
       } catch (error) {
         console.warn(`API GET documents for ${year}/${termId} failed`, error);
+      }
+    }
+
+    async function loadTermAttendance(year, termId) {
+      try {
+        const response = await apiFetch(`accounting-years/${year}/terms/${termId}/attendance`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const attendance = normalizeAttendanceEntries(await response.json());
+        const otherTerms = state.attendance.filter((entry) => entry.termId !== termId);
+        state.attendance = [...otherTerms, ...attendance];
+      } catch (error) {
+        console.warn(`API GET attendance for ${year}/${termId} failed`, error);
       }
     }
 
@@ -1833,8 +2051,14 @@ const app = createApp({
         });
         if (!response.ok) {
           if (response.status === 409) {
-            await loadFromApi();
-            showToast("Ces données ont été modifiées ailleurs. La version récente a été rechargée.", "warning");
+            const problem = await response.json().catch(() => ({}));
+            if (resource.includes("teacher-invoice-requests") || resource.includes("teacher-adjustments")) {
+              await loadBillingSummary();
+            } else {
+              await loadFromApi();
+              if (selectedTerm.value?.id) await loadTermAttendance(state.settings.year, selectedTerm.value.id);
+            }
+            showToast(problem.detail || "Ces données ont été modifiées ailleurs. La version récente a été rechargée.", "warning");
             return;
           }
           const errorText = await response.text();
@@ -1867,8 +2091,10 @@ const app = createApp({
         });
         if (!response.ok) {
           if (response.status === 409) {
+            const problem = await response.json().catch(() => ({}));
             await loadFromApi();
-            showToast("Cette présence a été modifiée ailleurs. Les données ont été rechargées.", "warning");
+            if (selectedTerm.value?.id) await loadTermAttendance(state.settings.year, selectedTerm.value.id);
+            showToast(problem.detail || "Cette présence a été modifiée ailleurs. Les données ont été rechargées.", "warning");
             return;
           }
           const errorText = await response.text();
@@ -1909,6 +2135,7 @@ const app = createApp({
         showToast(`Année ${state.settings.year} chargée`, "success");
       } catch {
         billingSummary.value = null;
+        billingSummariesByTerm.value = {};
         billingStatus.value = "error";
         billingError.value = "Calcul comptable indisponible. Les montants ne sont pas recalculés dans le navigateur.";
         markApiFailure({ expiredMessage: "Session expirée" });
@@ -2464,6 +2691,8 @@ const app = createApp({
       activeView,
       selectedTermId,
       selectedTerm,
+      automaticTerm,
+      dashboardDateLabel,
       yearStatus,
       yearStatusLabel,
       structureLocked,
@@ -2526,9 +2755,19 @@ const app = createApp({
       studentInvoiceDocuments,
       studentInvoiceSummaryDocument,
       teacherInvoiceRequestDocuments,
+      teacherEndWeeks,
       documentHistory,
       billingStatus,
       billingError,
+      dashboardTerms,
+      annualDashboardTotals,
+      dashboardOutflowTotal,
+      dashboardSubsidyShare,
+      dashboardDonutStyle,
+      dashboardTeacherActivity,
+      dashboardTeacherActivityTotals,
+      dashboardBarHeight,
+      dashboardTermStatus,
       loadBillingSummary,
       copyAnnualConfiguration,
       updateYearStatus,
@@ -2579,6 +2818,7 @@ const app = createApp({
       WEEKDAYS,
       EXPENSE_CATEGORIES,
       money,
+      hoursLabel,
       formatDate,
       categoryLabel,
       fullName,
@@ -2586,6 +2826,8 @@ const app = createApp({
       memberCount,
       isPresent,
       attendanceStatus,
+      isAttendanceLocked,
+      attendanceTitle,
       attendanceSymbol,
       attendanceDateLabel,
       isAttendanceSaving,
@@ -2621,6 +2863,12 @@ const app = createApp({
       prepareTeacherInvoiceRequest,
       finalizeAllStudentInvoices,
       finalizeTeacherInvoiceRequest,
+      documentsForTeacher,
+      draftForTeacher,
+      finalizedDocumentsForTeacher,
+      selectedTeacherEndWeek,
+      reportTeacherAdjustment,
+      deleteTeacherAdjustment,
       documentDownloadUrl,
       downloadDocument,
       documentForMusician,
@@ -2881,15 +3129,16 @@ const app = createApp({
       <section class="content">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Comptabilité activité musique</p>
+            <p v-if="activeView !== 'dashboard'" class="eyebrow">Comptabilité activité musique</p>
             <h1>{{ pageTitle }}</h1>
+            <p v-if="activeView === 'dashboard'" class="dashboard-date">Situation consolidée au {{ dashboardDateLabel }}</p>
           </div>
           <div class="topbar-actions">
             <div class="term-control">
               <label for="term">Période</label>
               <select id="term" v-model="selectedTermId">
                 <option v-for="term in state.settings.terms" :key="term.id" :value="term.id">
-                  {{ term.name }} - semaines {{ term.startWeek }} à {{ term.endWeek }}
+                  {{ term.name }}{{ term.id === automaticTerm?.id ? ' — automatique' : '' }}
                 </option>
               </select>
             </div>
@@ -2908,89 +3157,156 @@ const app = createApp({
             <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Connectez le backend pour charger les montants comptables.') }}</span>
             <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
           </div>
-          <div class="kpi-grid">
-            <article class="kpi">
-              <span>À facturer élèves</span>
-              <strong>{{ billingMoney(studentTotal) }}</strong>
-              <small>Cours + cotisations groupe</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
+          <div class="annual-kpi-grid">
+            <article class="annual-kpi">
+              <span>Facturation élèves</span>
+              <strong>{{ billingMoney(annualDashboardTotals.studentBilling) }}</strong>
+              <small>Cours + cotisations, cumul annuel</small>
+              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
-            <article class="kpi">
-              <span>Dû professeurs</span>
-              <strong>{{ billingMoney(totals.teacherDue) }}</strong>
-              <small>Cours individuels + groupes encadrés</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
+            <article class="annual-kpi">
+              <span>Coût prestataires</span>
+              <strong>{{ billingMoney(annualDashboardTotals.teacherDue) }}</strong>
+              <small>Cours individuels + ateliers</small>
+              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
-            <article class="kpi">
-              <span>Cotisations groupe</span>
-              <strong>{{ billingMoney(totals.groupFees) }}</strong>
-              <small>Dédupliquées par musicien</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
+            <article class="annual-kpi">
+              <span>Dépenses</span>
+              <strong>{{ money(annualDashboardTotals.expenses) }}</strong>
+              <small>Charges enregistrées sur l’année</small>
+              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
-            <article class="kpi">
-              <span>Dépenses annuelles</span>
-              <strong>{{ money(totals.annualExpenses) }}</strong>
-              <small>Budget activité musique</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-            <article class="kpi emphasis">
-              <span>Subvention estimée</span>
-              <strong>{{ billingMoney(totals.subsidy) }}</strong>
-              <small>Dû profs - 50% cours - cotisations</small>
-              <img class="kpi-signal" src="/src/assets/kpi-waveform-green.png" alt="" aria-hidden="true" />
+            <article class="annual-kpi emphasis">
+              <span>Subvention calculée</span>
+              <strong>{{ billingMoney(annualDashboardTotals.subsidy) }}</strong>
+              <small>Dû prestataires − 50 % cours − cotisations</small>
+              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
             </article>
           </div>
 
-          <div class="split">
-            <section class="panel">
-              <div class="panel-head">
-                <h2>Professeurs</h2>
-                <span>{{ state.teachers.length }} intervenants</span>
+          <div class="annual-chart-grid">
+            <section class="panel annual-bars-panel">
+              <div class="annual-panel-heading">
+                <div>
+                  <h2>Évolution par trimestre</h2>
+                  <span>Comparaison des principaux flux comptables</span>
+                </div>
+                <div class="chart-legend" aria-label="Légende du graphique">
+                  <span><i class="students"></i>Facturation élèves</span>
+                  <span><i class="teachers"></i>Coût prestataires</span>
+                  <span><i class="subsidy"></i>Subvention calculée</span>
+                  <span><i class="expenses"></i>Dépenses</span>
+                </div>
               </div>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Professeur</th>
-                    <th>Heures cours</th>
-                    <th>Heures groupes</th>
-                    <th class="num">Montant dû</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in teacherRows" :key="row.teacher.id">
-                    <td>
-                      <strong>{{ fullName(row.teacher) }}</strong>
-                      <small>{{ row.teacher.instrument }}</small>
-                    </td>
-                    <td>{{ row.individualHours.toFixed(2) }} h</td>
-                    <td>{{ row.workshopHours.toFixed(2) }} h</td>
-                    <td class="num">{{ billingMoney(row.totalDue) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-
-            <section class="panel">
-              <div class="panel-head">
-                <h2>Groupes</h2>
-                <span>{{ state.bands.length }} groupes</span>
-              </div>
-              <div class="group-list">
-                <article v-for="band in state.bands" :key="band.id" class="group-row">
-                  <div class="group-identity">
-                    <span class="group-icon" aria-hidden="true">
-                      <i :class="['ph', band.type === 'workshop' ? 'ph-microphone-stage' : 'ph-guitar']"></i>
+              <div class="dashboard-bars" role="img" aria-label="Comparaison des montants par trimestre">
+                <div v-for="term in dashboardTerms" :key="term.id" class="dashboard-bar-group" :class="{ current: term.automatic }">
+                  <div class="dashboard-bar-stage">
+                    <span class="dashboard-bar-column">
+                      <small>{{ money(term.studentBilling) }}</small>
+                      <span class="dashboard-bar students" :style="{ height: dashboardBarHeight(term.studentBilling) }" :title="'Facturation élèves : ' + money(term.studentBilling)"></span>
                     </span>
-                    <div class="group-copy">
-                      <strong>{{ band.name }}</strong>
-                      <small>{{ band.type === 'workshop' ? 'Groupe de travail encadré' : 'Groupe musical indépendant' }}</small>
-                    </div>
+                    <span class="dashboard-bar-column">
+                      <small>{{ money(term.teacherDue) }}</small>
+                      <span class="dashboard-bar teachers" :style="{ height: dashboardBarHeight(term.teacherDue) }" :title="'Coût prestataires : ' + money(term.teacherDue)"></span>
+                    </span>
+                    <span class="dashboard-bar-column">
+                      <small>{{ money(term.subsidy) }}</small>
+                      <span class="dashboard-bar subsidy" :style="{ height: dashboardBarHeight(term.subsidy) }" :title="'Subvention calculée : ' + money(term.subsidy)"></span>
+                    </span>
+                    <span class="dashboard-bar-column">
+                      <small>{{ money(term.expenses) }}</small>
+                      <span class="dashboard-bar expenses" :style="{ height: dashboardBarHeight(term.expenses) }" :title="'Dépenses : ' + money(term.expenses)"></span>
+                    </span>
                   </div>
-                  <span>{{ memberCount(band) }} membres</span>
-                </article>
+                  <strong>{{ term.name }}</strong>
+                  <small>Semaines {{ term.startWeek }} à {{ term.endWeek }}</small>
+                  <em :class="{ current: term.automatic }">{{ dashboardTermStatus(term) }}</em>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel annual-donut-panel">
+              <div class="annual-panel-heading">
+                <div>
+                  <h2>Répartition des sorties</h2>
+                  <span>Cumul annuel à ce jour</span>
+                </div>
+              </div>
+              <div class="dashboard-donut" :style="dashboardDonutStyle" role="img" :aria-label="'Subvention calculée ' + dashboardSubsidyShare.toFixed(0) + ' %, dépenses ' + (100 - dashboardSubsidyShare).toFixed(0) + ' %'">
+                <div>
+                  <strong>{{ money(dashboardOutflowTotal) }}</strong>
+                  <span>Total sorties</span>
+                </div>
+              </div>
+              <div class="donut-legend">
+                <div><i class="subsidy"></i><span>Subvention calculée<strong>{{ billingMoney(annualDashboardTotals.subsidy) }} · {{ dashboardSubsidyShare.toFixed(0) }} %</strong></span></div>
+                <div><i class="expenses"></i><span>Dépenses<strong>{{ money(annualDashboardTotals.expenses) }} · {{ (100 - dashboardSubsidyShare).toFixed(0) }} %</strong></span></div>
               </div>
             </section>
           </div>
+
+          <div class="term-summary-grid" aria-label="Indicateurs par trimestre">
+            <button
+              v-for="term in dashboardTerms"
+              :key="term.id"
+              type="button"
+              class="term-summary-card"
+              :class="{ selected: term.selected }"
+              @click="selectedTermId = term.id"
+            >
+              <span class="term-summary-heading">
+                <span><strong>{{ term.name }}</strong><small>Semaines {{ term.startWeek }} à {{ term.endWeek }}</small></span>
+                <em :class="{ current: term.automatic }">{{ dashboardTermStatus(term) }}</em>
+              </span>
+              <span class="term-summary-values">
+                <span>Facturation<strong>{{ billingMoney(term.studentBilling) }}</strong></span>
+                <span>Prestataires<strong>{{ billingMoney(term.teacherDue) }}</strong></span>
+                <span>Dépenses<strong>{{ money(term.expenses) }}</strong></span>
+                <span>Subvention<strong>{{ billingMoney(term.subsidy) }}</strong></span>
+              </span>
+            </button>
+          </div>
+
+          <section class="panel provider-activity-panel" aria-labelledby="provider-activity-title">
+            <div class="provider-activity-heading">
+              <div>
+                <span class="section-kicker">{{ selectedTerm.name }}</span>
+                <h2 id="provider-activity-title">Activité des prestataires</h2>
+                <p>Heures réalisées et avancement de la facturation pour la période sélectionnée.</p>
+              </div>
+              <div class="provider-activity-totals" aria-label="Totaux de la période">
+                <span><small>Heures données</small><strong>{{ hoursLabel(dashboardTeacherActivityTotals.hours) }}</strong></span>
+                <span><small>Déjà facturé</small><strong>{{ billingMoney(dashboardTeacherActivityTotals.issued) }}</strong></span>
+                <span class="remaining"><small>À facturer</small><strong>{{ billingMoney(dashboardTeacherActivityTotals.remaining) }}</strong></span>
+              </div>
+            </div>
+
+            <div v-if="dashboardTeacherActivity.length" class="provider-activity-list">
+              <div class="provider-activity-columns" aria-hidden="true">
+                <span>Prestataire</span><span>Heures données</span><span>Déjà facturé</span><span>À facturer</span><span>Avancement</span><span></span>
+              </div>
+              <article v-for="activity in dashboardTeacherActivity" :key="activity.teacherId" class="provider-activity-row">
+                <div class="provider-identity">
+                  <span class="provider-avatar" aria-hidden="true">{{ activity.teacher.firstName?.charAt(0) }}{{ activity.teacher.lastName?.charAt(0) }}</span>
+                  <span><strong>{{ fullName(activity.teacher) }}</strong><small>{{ activity.teacher.instrument || 'Prestataire' }}</small></span>
+                </div>
+                <div class="provider-metric"><small>Heures données</small><strong>{{ hoursLabel(activity.totalHours) }}</strong></div>
+                <div class="provider-metric"><small>Déjà facturé</small><strong>{{ billingMoney(activity.issuedAmount) }}</strong></div>
+                <div class="provider-metric remaining"><small>À facturer</small><strong>{{ billingMoney(activity.remainingAmount) }}</strong></div>
+                <div class="provider-progress">
+                  <span><small>Avancement</small><strong>{{ activity.issuedPercent.toFixed(0) }} %</strong></span>
+                  <span class="provider-progress-track" role="progressbar" :aria-label="'Facturation de ' + fullName(activity.teacher)" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="activity.issuedPercent.toFixed(0)">
+                    <i class="issued" :style="{ width: activity.issuedPercent + '%' }"></i>
+                  </span>
+                </div>
+                <button v-if="canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="provider-billing-link" @click="activeView = 'billing'">Facturation</button>
+              </article>
+            </div>
+            <div v-else class="provider-activity-empty">
+              <strong>Aucune heure enregistrée</strong>
+              <span>Les heures réalisées par les prestataires apparaîtront ici.</span>
+            </div>
+          </section>
         </section>
 
         <section v-if="activeView === 'attendance' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack">
@@ -3039,11 +3355,11 @@ const app = createApp({
                       <button
                         :class="['attendance-state', attendanceStatus('individualCourse', row.course.id, week).toLowerCase()]"
                         @click="toggleAttendance('individualCourse', row.course.id, week)"
-                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('individualCourse', row.course.id, week)"
+                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('individualCourse', row.course.id, week) || isAttendanceLocked('individualCourse', row.course.id, week)"
                         :aria-label="'Présence ' + fullName(row.musician) + ' semaine ' + week + ' : ' + attendanceStatus('individualCourse', row.course.id, week)"
-                        :title="attendanceStatus('individualCourse', row.course.id, week)"
+                        :title="attendanceTitle('individualCourse', row.course.id, week)"
                       >
-                        {{ attendanceSymbol('individualCourse', row.course.id, week) }}
+                        {{ isAttendanceLocked('individualCourse', row.course.id, week) ? '🔒' : attendanceSymbol('individualCourse', row.course.id, week) }}
                       </button>
                       <small class="session-date-label">{{ attendanceDateLabel('individualCourse', row.course.id, week) }}</small>
                     </td>
@@ -3084,11 +3400,11 @@ const app = createApp({
                       <button
                         :class="['attendance-state', attendanceStatus('workshop', row.band.id, week).toLowerCase()]"
                         @click="toggleAttendance('workshop', row.band.id, week)"
-                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('workshop', row.band.id, week)"
+                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('workshop', row.band.id, week) || isAttendanceLocked('workshop', row.band.id, week)"
                         :aria-label="'Séance ' + row.band.name + ' semaine ' + week + ' : ' + attendanceStatus('workshop', row.band.id, week)"
-                        :title="attendanceStatus('workshop', row.band.id, week)"
+                        :title="attendanceTitle('workshop', row.band.id, week)"
                       >
-                        {{ attendanceSymbol('workshop', row.band.id, week) }}
+                        {{ isAttendanceLocked('workshop', row.band.id, week) ? '🔒' : attendanceSymbol('workshop', row.band.id, week) }}
                       </button>
                       <small class="session-date-label">{{ attendanceDateLabel('workshop', row.band.id, week) }}</small>
                     </td>
@@ -3627,7 +3943,7 @@ const app = createApp({
           <section class="panel">
             <div class="panel-head">
               <div>
-                <h2>Demandes de facture professeurs</h2>
+                <h2>Demandes de facture prestataires</h2>
                 <span>{{ teacherInvoiceRequestDocuments.length || teacherBillingSections.length }} demandes</span>
               </div>
               <div class="document-actions">
@@ -3642,29 +3958,34 @@ const app = createApp({
                     <span>{{ section.teacher.instrument }}</span>
                   </div>
                   <div class="document-actions">
-                    <strong>{{ section.totalHours.toFixed(2) }} h - {{ billingMoney(section.totalAmount) }}</strong>
-                    <a v-if="documentForTeacher(section.teacher.id)?.fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForTeacher(section.teacher.id))">
-                      PDF · {{ documentStatusLabel(documentForTeacher(section.teacher.id).status) }}
+                    <label class="week-cutoff">Jusqu’à la semaine
+                      <select v-model.number="teacherEndWeeks[section.teacher.id]">
+                        <option v-for="week in weeks" :key="week" :value="week">S{{ week }}</option>
+                      </select>
+                    </label>
+                    <a v-if="draftForTeacher(section.teacher.id)?.fileName" class="document-link" href="#" @click.prevent="downloadDocument(draftForTeacher(section.teacher.id))">
+                      PDF du brouillon · Situation {{ draftForTeacher(section.teacher.id).installmentNumber || 'à régénérer' }}
                     </a>
-                    <span v-else-if="documentForTeacher(section.teacher.id)" class="muted">Brouillon à régénérer</span>
                     <div v-if="can('BILLING_PRINT')" class="document-actions">
                       <button
-                        v-if="!documentForTeacher(section.teacher.id) || documentForTeacher(section.teacher.id).status === 'DRAFT'"
+                        v-if="section.installmentsAvailable"
                         class="ghost-button"
                         @click="prepareTeacherInvoiceRequest(section.teacher.id)"
-                      >{{ documentForTeacher(section.teacher.id) ? 'Régénérer le brouillon' : 'Prévisualiser' }}</button>
+                      >{{ draftForTeacher(section.teacher.id) ? 'Régénérer le brouillon' : 'Prévisualiser' }}</button>
                       <button
-                        v-if="documentForTeacher(section.teacher.id)?.status === 'DRAFT'"
+                        v-if="draftForTeacher(section.teacher.id)?.installmentNumber"
                         class="danger-outline-button"
                         @click="finalizeTeacherInvoiceRequest(section.teacher.id)"
                       >Valider cette demande</button>
                     </div>
-                    <div v-if="documentForTeacher(section.teacher.id) && can('BILLING_PRINT')" class="document-row-actions">
-                      <button v-if="documentForTeacher(section.teacher.id).status === 'GENERATED'" @click="markDocumentSent(documentForTeacher(section.teacher.id))">Marquer envoyé</button>
-                      <button v-if="documentForTeacher(section.teacher.id).status === 'GENERATED'" @click="cancelFinalDocument(documentForTeacher(section.teacher.id))">Annuler</button>
-                      <button v-if="['GENERATED', 'SENT'].includes(documentForTeacher(section.teacher.id).status)" @click="correctFinalDocument(documentForTeacher(section.teacher.id))">Corriger</button>
-                    </div>
+                    <span v-if="!section.installmentsAvailable" class="muted">Trimestre historique : acomptes disponibles au prochain trimestre</span>
                   </div>
+                </div>
+                <div class="teacher-financial-metrics">
+                  <div><span>Montant acquis</span><strong>{{ billingMoney(section.accruedAmount) }}</strong></div>
+                  <div><span>Déjà émis</span><strong>{{ billingMoney(section.issuedAmount) }}</strong></div>
+                  <div><span>Régularisations</span><strong>{{ billingMoney(section.pendingAdjustmentAmount) }}</strong></div>
+                  <div class="remaining"><span>Restant à émettre</span><strong>{{ billingMoney(section.remainingAmount) }}</strong></div>
                 </div>
                 <div class="attendance-table-wrap">
                   <table>
@@ -3685,6 +4006,25 @@ const app = createApp({
                       </tr>
                     </tbody>
                   </table>
+                </div>
+                <div v-if="section.adjustments.length" class="pending-adjustments">
+                  <strong>Régularisations en attente</strong>
+                  <div v-for="adjustment in section.adjustments" :key="adjustment.id">
+                    <span>{{ adjustment.reason }} · {{ billingMoney(adjustment.amount) }}</span>
+                    <button v-if="can('BILLING_PRINT')" class="ghost-button" @click="deleteTeacherAdjustment(adjustment)">Supprimer</button>
+                  </div>
+                </div>
+                <div v-if="finalizedDocumentsForTeacher(section.teacher.id).length" class="installment-history">
+                  <strong>Historique des situations</strong>
+                  <div v-for="document in finalizedDocumentsForTeacher(section.teacher.id)" :key="document.id" class="installment-row">
+                    <span>Situation n°{{ document.installmentNumber || 'historique' }} · S{{ document.periodStartWeek || selectedTerm.startWeek }}–S{{ document.periodEndWeek || selectedTerm.endWeek }} · {{ documentStatusLabel(document.status) }}</span>
+                    <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">{{ document.documentNumber }}</a>
+                    <div v-if="can('BILLING_PRINT')" class="document-row-actions">
+                      <button v-if="document.status === 'GENERATED'" @click="markDocumentSent(document)">Marquer envoyé</button>
+                      <button v-if="document.status === 'GENERATED'" @click="cancelFinalDocument(document)">Annuler</button>
+                      <button v-if="document.status === 'SENT'" @click="reportTeacherAdjustment(document)">Reporter un écart</button>
+                    </div>
+                  </div>
                 </div>
               </article>
             </div>
