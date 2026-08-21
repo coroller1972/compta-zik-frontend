@@ -1,4 +1,5 @@
 import { createApp, computed, nextTick, reactive, ref, watch } from "./vendor/vue.esm-browser.prod.js";
+import qrcode from "./vendor/qrcode-generator.min.mjs";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -234,6 +235,11 @@ function formatDate(value) {
   return SHORT_DATE.format(new Date(`${value}T00:00:00`));
 }
 
+function formatDateTime(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
 function categoryLabel(category) {
   return EXPENSE_CATEGORIES.find((item) => item.value === category)?.label || category;
 }
@@ -275,6 +281,130 @@ function countLabel(count, singular, plural = `${singular}s`) {
   return `${normalizedCount} ${normalizedCount === 1 ? singular : plural}`;
 }
 
+function emptyTotpDigits() {
+  return Array.from({ length: 6 }, () => "");
+}
+
+const TotpCodeInput = {
+  props: {
+    modelValue: { type: Array, required: true },
+    label: { type: String, default: "Code à six chiffres" },
+    error: { type: Boolean, default: false },
+    autofocus: { type: Boolean, default: false },
+  },
+  emits: ["update:modelValue"],
+  setup(props, { emit }) {
+    function normalizedDigits() {
+      return emptyTotpDigits().map((_, index) => String(props.modelValue?.[index] || "").replace(/\D/g, "").slice(-1));
+    }
+
+    function updateDigits(nextDigits) {
+      emit("update:modelValue", emptyTotpDigits().map((_, index) => nextDigits[index] || ""));
+    }
+
+    function focusDigit(event, index) {
+      const inputs = event.currentTarget?.closest(".totp-input-group")?.querySelectorAll(".totp-digit");
+      const input = inputs?.[Math.max(0, Math.min(5, index))];
+      input?.focus();
+      input?.select();
+    }
+
+    function synchronizeInputs(event, digits, focusIndex = null) {
+      const group = event.currentTarget?.closest(".totp-input-group");
+      nextTick(() => {
+        const inputs = group?.querySelectorAll(".totp-digit");
+        inputs?.forEach((input, index) => {
+          input.value = digits[index] || "";
+        });
+        if (focusIndex !== null) {
+          const input = inputs?.[Math.max(0, Math.min(5, focusIndex))];
+          input?.focus();
+          input?.select();
+        }
+      });
+    }
+
+    function distributeDigits(event, index, rawValue) {
+      const entered = String(rawValue || "").replace(/\D/g, "");
+      const next = normalizedDigits();
+      if (!entered) {
+        next[index] = "";
+        updateDigits(next);
+        synchronizeInputs(event, next, index);
+        return;
+      }
+      const startIndex = entered.length >= 6 ? 0 : index;
+      entered.slice(0, 6 - startIndex).split("").forEach((digit, offset) => {
+        next[startIndex + offset] = digit;
+      });
+      updateDigits(next);
+      synchronizeInputs(event, next, Math.min(startIndex + entered.length, 5));
+    }
+
+    function handleInput(event, index) {
+      distributeDigits(event, index, event.target.value);
+    }
+
+    function handlePaste(event, index) {
+      const pasted = event.clipboardData?.getData("text") || "";
+      if (!/\d/.test(pasted)) return;
+      event.preventDefault();
+      distributeDigits(event, index, pasted);
+    }
+
+    function handleBeforeInput(event) {
+      if (event.inputType === "insertFromPaste" || event.inputType === "insertFromDrop") {
+        event.preventDefault();
+      }
+    }
+
+    function handleKeydown(event, index) {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        focusDigit(event, index - 1);
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        focusDigit(event, index + 1);
+      } else if (event.key === "Backspace" && !normalizedDigits()[index] && index > 0) {
+        event.preventDefault();
+        const next = normalizedDigits();
+        next[index - 1] = "";
+        updateDigits(next);
+        synchronizeInputs(event, next, index - 1);
+      } else if (event.key.length === 1 && !/\d/.test(event.key)) {
+        event.preventDefault();
+      }
+    }
+
+    return { handleInput, handlePaste, handleBeforeInput, handleKeydown };
+  },
+  template: `
+    <fieldset class="totp-fieldset" :class="{ error }">
+      <legend>{{ label }}</legend>
+      <div class="totp-input-group" role="group" :aria-label="label" :aria-invalid="error ? 'true' : 'false'">
+        <input
+          v-for="(_, index) in 6"
+          :key="index + '-' + (modelValue[index] || 'empty')"
+          class="totp-digit"
+          :class="{ filled: Boolean(modelValue[index]) }"
+          :value="modelValue[index] || ''"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="1"
+          autocomplete="off"
+          :autofocus="autofocus && index === 0"
+          :aria-label="'Chiffre ' + (index + 1) + ' sur 6'"
+          @input="handleInput($event, index)"
+          @paste="handlePaste($event, index)"
+          @beforeinput="handleBeforeInput($event)"
+          @keydown="handleKeydown($event, index)"
+          @focus="$event.currentTarget.select()"
+        />
+      </div>
+    </fieldset>
+  `,
+};
+
 const app = createApp({
   setup() {
     const state = reactive(structuredClone(demoState));
@@ -287,11 +417,33 @@ const app = createApp({
     const apiBase = ref(API_BASE);
     const loginError = ref("");
     const authLoading = ref(false);
+    const authFlowPending = ref(false);
     const loginForm = reactive({
       username: "",
       password: "",
       rememberMe: true,
     });
+    const mfaChallenge = reactive({
+      active: false,
+      token: "",
+      expiresAt: "",
+      methods: [],
+      code: "",
+    });
+    const mfaLoginError = ref("");
+    const mfaLoginMode = ref("totp");
+    const mfaLoginDigits = ref(emptyTotpDigits());
+    const twoFactorStatus = ref(null);
+    const twoFactorLoading = ref(false);
+    const mfaSetup = ref(null);
+    const mfaSetupDigits = ref(emptyTotpDigits());
+    const mfaSetupError = ref("");
+    const mfaRecoveryCodes = ref([]);
+    const mfaRecoveryRequiresRelogin = ref(false);
+    const mfaSetupForm = reactive({ password: "", code: "" });
+    const mfaRecoveryForm = reactive({ code: "" });
+    const mfaDisableForm = reactive({ password: "", code: "" });
+    const mfaAccountAction = ref("");
     const accountingYearInput = ref(state.settings.year);
     const copySourceYear = ref(state.settings.year - 1);
     const search = ref("");
@@ -681,6 +833,46 @@ const app = createApp({
     })).filter((category) => category.total > 0));
 
     const isAuthenticated = computed(() => Boolean(authSession.value?.accessToken));
+    const isAdministrator = computed(() => currentUser.value?.roles?.includes("ADMINISTRATOR") === true);
+    const mustEnrollMfa = computed(() => (
+      mfaRecoveryCodes.value.length > 0
+      || (isAuthenticated.value && isAdministrator.value && twoFactorStatus.value?.enabled !== true)
+    ));
+    const authGateActive = computed(() => !isAuthenticated.value || mustChangePassword.value || mustEnrollMfa.value || authFlowPending.value);
+    const authGateTitle = computed(() => {
+      if (authFlowPending.value) return "Vérification de la session";
+      if (mfaRecoveryCodes.value.length) return "Codes de récupération";
+      if (mustChangePassword.value) return "Nouveau mot de passe";
+      if (mustEnrollMfa.value) return "Sécuriser le compte";
+      if (mfaChallenge.active) return "Validation en deux étapes";
+      return "Compta Zik";
+    });
+    const mfaSetupCode = computed(() => mfaSetupDigits.value.join(""));
+    const mfaSetupCodeComplete = computed(() => /^\d{6}$/.test(mfaSetupCode.value));
+    const mfaLoginCodeComplete = computed(() => (
+      mfaLoginMode.value === "totp"
+        ? /^\d{6}$/.test(mfaLoginDigits.value.join(""))
+        : Boolean(mfaChallenge.code.trim())
+    ));
+    watch(mfaLoginDigits, () => {
+      if (mfaLoginError.value) mfaLoginError.value = "";
+    }, { deep: true });
+    watch(mfaSetupDigits, () => {
+      if (mfaSetupError.value) mfaSetupError.value = "";
+    }, { deep: true });
+    const mfaQrSvg = computed(() => {
+      const uri = mfaSetup.value?.otpauthUri;
+      if (!uri) return "";
+      try {
+        const code = qrcode(0, "M");
+        code.addData(uri);
+        code.make();
+        return code.createSvgTag({ cellSize: 5, margin: 16, scalable: true, title: "QR code d’enrôlement TOTP" });
+      } catch (error) {
+        console.warn("TOTP QR code generation failed", error);
+        return "";
+      }
+    });
 
     const currentUserLabel = computed(() => {
       if (!isAuthenticated.value) return "Utilisateur non connecté";
@@ -1839,6 +2031,7 @@ const app = createApp({
 
     function openAccountView() {
       activeView.value = "account";
+      if (!mustChangePassword.value && can("ACCOUNT_USER")) loadTwoFactorStatus();
       if (!mustChangePassword.value) loadAuthAdministration();
     }
 
@@ -1914,6 +2107,9 @@ const app = createApp({
       revokeAuthUserAvatarUrls();
       authSession.value = null;
       currentUser.value = null;
+      twoFactorStatus.value = null;
+      resetMfaForms();
+      resetMfaChallenge();
       authUsers.value = [];
       generatedTemporaryPassword.value = "";
       localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
@@ -2071,9 +2267,268 @@ const app = createApp({
         }
         if (code === "PRECONDITION_REQUIRED") return "Clé d'idempotence manquante";
         if (code === "TOKEN_EXPIRED") return "Session expirée";
+        if (code === "INVALID_CREDENTIALS") return "Identifiant ou mot de passe incorrect";
+        if (code === "RATE_LIMITED") return "Trop de tentatives. Patientez avant de réessayer.";
+        if (code === "INVALID_MFA_CODE") return "Code de sécurité incorrect ou déjà utilisé";
+        if (code === "MFA_CHALLENGE_EXPIRED") return "Le délai de validation est dépassé. Reconnectez-vous.";
+        if (code === "MFA_CHALLENGE_INVALID") return "La demande de validation n’est plus valable. Reconnectez-vous.";
+        if (code === "MFA_SETUP_REQUIRED") return "L’enrôlement a expiré. Générez un nouveau QR code.";
+        if (code === "MFA_ALREADY_ENABLED") return "L’authentification à deux facteurs est déjà active";
+        if (code === "MFA_NOT_ENABLED") return "L’authentification à deux facteurs n’est pas active";
+        if (code === "MFA_ENROLLMENT_REQUIRED") return "L’authentification à deux facteurs doit être activée pour ce compte administrateur";
         return code || fallback;
       } catch {
         return fallback;
+      }
+    }
+
+    function resetMfaChallenge() {
+      Object.assign(mfaChallenge, { active: false, token: "", expiresAt: "", methods: [], code: "" });
+      mfaLoginError.value = "";
+      mfaLoginMode.value = "totp";
+      mfaLoginDigits.value = emptyTotpDigits();
+    }
+
+    function resetMfaForms() {
+      mfaSetup.value = null;
+      Object.assign(mfaSetupForm, { password: "", code: "" });
+      mfaSetupDigits.value = emptyTotpDigits();
+      mfaSetupError.value = "";
+      Object.assign(mfaRecoveryForm, { code: "" });
+      Object.assign(mfaDisableForm, { password: "", code: "" });
+      mfaAccountAction.value = "";
+    }
+
+    function setMfaLoginMode(mode) {
+      mfaLoginMode.value = mode;
+      mfaLoginDigits.value = emptyTotpDigits();
+      mfaChallenge.code = "";
+      mfaLoginError.value = "";
+    }
+
+    async function loadTwoFactorStatus() {
+      if (!authSession.value?.accessToken || !can("ACCOUNT_USER")) {
+        twoFactorStatus.value = null;
+        return null;
+      }
+      twoFactorLoading.value = true;
+      try {
+        const response = await apiFetch("auth/users/me/2fa");
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        twoFactorStatus.value = await response.json();
+        return twoFactorStatus.value;
+      } catch (error) {
+        console.warn("API GET auth/users/me/2fa failed", error);
+        if (isAdministrator.value) loginError.value = error.message || "État 2FA indisponible";
+        return null;
+      } finally {
+        twoFactorLoading.value = false;
+      }
+    }
+
+    async function initializeAuthenticatedSession() {
+      authFlowPending.value = true;
+      try {
+        if (mustChangePassword.value) return;
+        await loadTwoFactorStatus();
+        if (mustEnrollMfa.value) return;
+        await loadFromApi();
+      } finally {
+        authFlowPending.value = false;
+      }
+    }
+
+    async function verifyMfaLogin() {
+      mfaLoginError.value = "";
+      const code = mfaLoginMode.value === "totp" ? mfaLoginDigits.value.join("") : mfaChallenge.code.trim();
+      if (!mfaLoginCodeComplete.value) {
+        mfaLoginError.value = mfaLoginMode.value === "totp"
+          ? "Saisissez les six chiffres du code de sécurité."
+          : "Saisissez un code de récupération.";
+        return;
+      }
+      authLoading.value = true;
+      try {
+        const response = await fetch(`${apiBase.value}/auth/login/2fa`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": createId("mfa-login"),
+          },
+          credentials: "include",
+          body: JSON.stringify({ mfaToken: mfaChallenge.token, code }),
+        });
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        setAuthSession(await response.json());
+        resetMfaChallenge();
+        await initializeAuthenticatedSession();
+      } catch (error) {
+        console.warn("API POST auth/login/2fa failed", error);
+        mfaLoginError.value = error.message || "Code de sécurité refusé";
+      } finally {
+        authLoading.value = false;
+      }
+    }
+
+    async function beginMfaSetup() {
+      if (!mfaSetupForm.password) {
+        showToast("Saisissez votre mot de passe actuel", "warning");
+        return;
+      }
+      twoFactorLoading.value = true;
+      mfaSetupError.value = "";
+      try {
+        const response = await apiFetch("auth/users/me/2fa/setup", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": createId("mfa-setup"),
+          },
+          body: JSON.stringify({ password: mfaSetupForm.password }),
+        });
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        mfaSetup.value = await response.json();
+        mfaSetupForm.password = "";
+        mfaSetupForm.code = "";
+        mfaSetupDigits.value = emptyTotpDigits();
+      } catch (error) {
+        console.warn("API POST auth/users/me/2fa/setup failed", error);
+        showToast(error.message || "Enrôlement 2FA impossible", "error");
+      } finally {
+        twoFactorLoading.value = false;
+      }
+    }
+
+    async function activateTwoFactor() {
+      if (!mfaSetupCodeComplete.value) {
+        showToast("Saisissez le code à six chiffres affiché par l’application", "warning");
+        return;
+      }
+      const code = mfaSetupCode.value;
+      mfaSetupError.value = "";
+      twoFactorLoading.value = true;
+      try {
+        const response = await apiFetch("auth/users/me/2fa/activate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": createId("mfa-activate"),
+          },
+          body: JSON.stringify({ code }),
+        }, false);
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        const payload = await response.json();
+        twoFactorStatus.value = { enabled: true, recoveryCodesRemaining: payload.recoveryCodes?.length || 0, activatedAt: payload.generatedAt };
+        mfaRecoveryCodes.value = payload.recoveryCodes || [];
+        mfaRecoveryRequiresRelogin.value = true;
+        resetMfaForms();
+      } catch (error) {
+        console.warn("API POST auth/users/me/2fa/activate failed", error);
+        mfaSetupDigits.value = emptyTotpDigits();
+        await nextTick();
+        mfaSetupError.value = error.message || "Code de vérification refusé";
+        await nextTick();
+        document.querySelector(".totp-fieldset.error .totp-digit")?.focus();
+        showToast(error.message || "Activation 2FA impossible", "error");
+      } finally {
+        twoFactorLoading.value = false;
+      }
+    }
+
+    async function regenerateRecoveryCodes() {
+      if (!mfaRecoveryForm.code.trim()) {
+        showToast("Saisissez un code TOTP ou de récupération", "warning");
+        return;
+      }
+      twoFactorLoading.value = true;
+      try {
+        const response = await apiFetch("auth/users/me/2fa/recovery-codes", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": createId("mfa-recovery"),
+          },
+          body: JSON.stringify({ code: mfaRecoveryForm.code.trim() }),
+        });
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        const payload = await response.json();
+        mfaRecoveryCodes.value = payload.recoveryCodes || [];
+        mfaRecoveryRequiresRelogin.value = false;
+        mfaRecoveryForm.code = "";
+        mfaAccountAction.value = "";
+        await loadTwoFactorStatus();
+      } catch (error) {
+        console.warn("API POST auth/users/me/2fa/recovery-codes failed", error);
+        showToast(error.message || "Codes non régénérés", "error");
+      } finally {
+        twoFactorLoading.value = false;
+      }
+    }
+
+    async function disableTwoFactor() {
+      if (!mfaDisableForm.password || !mfaDisableForm.code.trim()) {
+        showToast("Le mot de passe et un code de sécurité sont obligatoires", "warning");
+        return;
+      }
+      twoFactorLoading.value = true;
+      try {
+        const response = await apiFetch("auth/users/me/2fa/disable", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": createId("mfa-disable"),
+          },
+          body: JSON.stringify({ password: mfaDisableForm.password, code: mfaDisableForm.code.trim() }),
+        }, false);
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        clearAuthSession();
+        resetMfaForms();
+        showToast("Authentification à deux facteurs désactivée. Reconnectez-vous.", "success");
+      } catch (error) {
+        console.warn("API POST auth/users/me/2fa/disable failed", error);
+        showToast(error.message || "Désactivation 2FA impossible", "error");
+      } finally {
+        twoFactorLoading.value = false;
+      }
+    }
+
+    async function copyRecoveryCodes() {
+      if (!mfaRecoveryCodes.value.length) return;
+      const content = mfaRecoveryCodes.value.join("\n");
+      try {
+        await navigator.clipboard.writeText(content);
+        showToast("Codes de récupération copiés", "success");
+      } catch {
+        const textarea = document.createElement("textarea");
+        textarea.value = content;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+        showToast("Codes de récupération copiés", "success");
+      }
+    }
+
+    function downloadRecoveryCodes() {
+      if (!mfaRecoveryCodes.value.length) return;
+      const content = `Compta Zik — codes de récupération 2FA\nUtilisateur : ${currentUser.value?.username || ""}\n\n${mfaRecoveryCodes.value.join("\n")}\n`;
+      const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `compta-zik-codes-recuperation-${currentUser.value?.username || "compte"}.txt`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function acknowledgeRecoveryCodes() {
+      const requiresRelogin = mfaRecoveryRequiresRelogin.value;
+      mfaRecoveryCodes.value = [];
+      mfaRecoveryRequiresRelogin.value = false;
+      if (requiresRelogin) {
+        clearAuthSession();
+        showToast("2FA activée. Reconnectez-vous avec votre code de sécurité.", "success");
       }
     }
 
@@ -2295,9 +2750,11 @@ const app = createApp({
           confirmPassword: "",
           revokeOtherSessions: false,
         });
-        await loadCurrentUser();
-        if (wasForcedPasswordChange && !mustChangePassword.value) {
-          await loadFromApi();
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          await initializeAuthenticatedSession();
+        } else if (wasForcedPasswordChange) {
+          showToast("Mot de passe modifié. Reconnectez-vous pour continuer.", "success");
         }
         showToast("Mot de passe changé", "success");
       } catch (error) {
@@ -2534,7 +2991,10 @@ const app = createApp({
       try {
         const response = await fetch(`${apiBase.value}/auth/login`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": createId("login"),
+          },
           credentials: "include",
           body: JSON.stringify({
             username: loginForm.username.trim(),
@@ -2542,16 +3002,28 @@ const app = createApp({
             rememberMe: loginForm.rememberMe,
           }),
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        setAuthSession(await response.json());
+        if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
+        const payload = await response.json();
         loginForm.password = "";
-        await loadCurrentUser();
-        if (mustChangePassword.value) return;
-        await loadFromApi();
+        if (payload.mfaRequired) {
+          Object.assign(mfaChallenge, {
+            active: true,
+            token: payload.mfaToken || "",
+            expiresAt: payload.expiresAt || "",
+            methods: payload.methods || [],
+            code: "",
+          });
+          mfaLoginMode.value = "totp";
+          mfaLoginDigits.value = emptyTotpDigits();
+          mfaLoginError.value = "";
+          return;
+        }
+        setAuthSession(payload);
+        await initializeAuthenticatedSession();
       } catch (error) {
         console.warn("API POST auth/login failed", error);
         clearAuthSession();
-        loginError.value = "Identifiants invalides ou service d'authentification indisponible.";
+        loginError.value = error.message || "Identifiants invalides ou service d'authentification indisponible.";
       } finally {
         authLoading.value = false;
       }
@@ -2715,9 +3187,7 @@ const app = createApp({
     });
     refreshSession(true).then((restored) => {
       if (!restored) return;
-      loadCurrentUser().then(() => {
-        if (!mustChangePassword.value) loadFromApi();
-      });
+      initializeAuthenticatedSession();
     });
 
     return {
@@ -2740,10 +3210,43 @@ const app = createApp({
       copySourceYear,
       apiStatus,
       authLoading,
+      authFlowPending,
+      authGateActive,
+      authGateTitle,
       login,
+      verifyMfaLogin,
       logout,
       loginError,
       loginForm,
+      mfaChallenge,
+      mfaLoginError,
+      mfaLoginMode,
+      mfaLoginDigits,
+      mfaLoginCodeComplete,
+      setMfaLoginMode,
+      twoFactorStatus,
+      twoFactorLoading,
+      mfaSetup,
+      mfaSetupDigits,
+      mfaSetupError,
+      mfaSetupCodeComplete,
+      mfaQrSvg,
+      mfaRecoveryCodes,
+      mfaSetupForm,
+      mfaRecoveryForm,
+      mfaDisableForm,
+      mfaAccountAction,
+      isAdministrator,
+      mustEnrollMfa,
+      beginMfaSetup,
+      activateTwoFactor,
+      regenerateRecoveryCodes,
+      disableTwoFactor,
+      copyRecoveryCodes,
+      downloadRecoveryCodes,
+      acknowledgeRecoveryCodes,
+      loadTwoFactorStatus,
+      resetMfaChallenge,
       currentUser,
       currentUserAvatarUrl,
       avatarFile,
@@ -2861,6 +3364,7 @@ const app = createApp({
       money,
       hoursLabel,
       formatDate,
+      formatDateTime,
       categoryLabel,
       fullName,
       countPresences,
@@ -2963,16 +3467,114 @@ const app = createApp({
     };
   },
   template: `
-    <main v-if="!isAuthenticated || mustChangePassword" class="login-shell">
-      <section class="login-panel" :class="{ 'password-change-panel': mustChangePassword }" aria-labelledby="login-title">
+    <main v-if="authGateActive" class="login-shell">
+      <section class="login-panel" :class="{ 'password-change-panel': mustChangePassword, 'mfa-panel': mustEnrollMfa || mfaChallenge.active }" aria-labelledby="login-title">
         <div class="login-brand">
           <img class="brand-mark" src="/src/assets/logo.png" alt="" aria-hidden="true" />
           <div>
             <p class="eyebrow">Comptabilité activité musique</p>
-            <h1 id="login-title">{{ mustChangePassword ? 'Nouveau mot de passe' : 'Compta Zik' }}</h1>
+            <h1 id="login-title">{{ authGateTitle }}</h1>
           </div>
         </div>
-        <form v-if="!mustChangePassword" class="login-form" @submit.prevent="login">
+        <div v-if="authFlowPending" class="auth-pending" role="status">
+          <span class="loading-ring" aria-hidden="true"></span>
+          <p>Contrôle des paramètres de sécurité du compte…</p>
+        </div>
+        <section v-else-if="mfaRecoveryCodes.length" class="mfa-recovery-screen">
+          <div class="security-callout warning">
+            <i class="ph ph-warning" aria-hidden="true"></i>
+            <div>
+              <strong>Enregistrez ces codes maintenant</strong>
+              <p>Ils ne seront plus affichés. Chaque code permet une connexion si votre application d’authentification est indisponible.</p>
+            </div>
+          </div>
+          <ol class="recovery-code-grid" aria-label="Codes de récupération">
+            <li v-for="code in mfaRecoveryCodes" :key="code"><code>{{ code }}</code></li>
+          </ol>
+          <div class="mfa-actions">
+            <button class="ghost-button" type="button" @click="copyRecoveryCodes"><i class="ph ph-copy" aria-hidden="true"></i> Copier</button>
+            <button class="ghost-button" type="button" @click="downloadRecoveryCodes"><i class="ph ph-download-simple" aria-hidden="true"></i> Télécharger</button>
+            <button class="primary-button" type="button" @click="acknowledgeRecoveryCodes">J’ai enregistré les codes</button>
+          </div>
+        </section>
+        <section v-else-if="mustEnrollMfa" class="mfa-enrollment">
+          <div class="security-callout">
+            <i class="ph ph-shield-check" aria-hidden="true"></i>
+            <div>
+              <strong>Protection obligatoire pour les administrateurs</strong>
+              <p>Associez ce compte à une application TOTP avant d’accéder aux données comptables.</p>
+            </div>
+          </div>
+          <div v-if="twoFactorStatus === null" class="mfa-status-unavailable">
+            <p>{{ loginError || 'Vérification de la configuration 2FA impossible.' }}</p>
+            <div class="mfa-actions">
+              <button class="primary-button" type="button" :disabled="twoFactorLoading" @click="loadTwoFactorStatus">Réessayer</button>
+              <button class="ghost-button" type="button" @click="logout">Se déconnecter</button>
+            </div>
+          </div>
+          <form v-else-if="!mfaSetup" class="login-form" @submit.prevent="beginMfaSetup">
+            <label>
+              Confirmez votre mot de passe
+              <input v-model="mfaSetupForm.password" type="password" autocomplete="current-password" autofocus />
+            </label>
+            <div class="mfa-actions">
+              <button class="primary-button" type="submit" :disabled="twoFactorLoading">{{ twoFactorLoading ? 'Préparation…' : 'Générer mon QR code' }}</button>
+              <button class="ghost-button" type="button" @click="logout">Se déconnecter</button>
+            </div>
+          </form>
+          <form v-else class="mfa-enrollment-grid" @submit.prevent="activateTwoFactor">
+            <div class="mfa-qr" v-html="mfaQrSvg" aria-label="QR code TOTP"></div>
+            <div class="mfa-steps">
+              <ol>
+                <li>Scannez le QR code avec votre application d’authentification.</li>
+                <li>Saisissez le code à six chiffres affiché.</li>
+                <li>Conservez ensuite les codes de récupération.</li>
+              </ol>
+              <details>
+                <summary>Saisie manuelle</summary>
+                <code class="mfa-secret">{{ mfaSetup.secret }}</code>
+              </details>
+              <totp-code-input
+                v-model="mfaSetupDigits"
+                label="Code de vérification"
+                :error="Boolean(mfaSetupError)"
+                autofocus
+              ></totp-code-input>
+              <p v-if="mfaSetupError" class="form-warning">{{ mfaSetupError }}</p>
+              <div class="mfa-actions">
+                <button class="primary-button" type="submit" :disabled="twoFactorLoading || !mfaSetupCodeComplete">{{ twoFactorLoading ? 'Activation…' : 'Activer la double authentification' }}</button>
+                <button class="ghost-button" type="button" @click="mfaSetup = null">Recommencer</button>
+              </div>
+            </div>
+          </form>
+        </section>
+        <form v-if="!authFlowPending && !mfaRecoveryCodes.length && !mustEnrollMfa && mfaChallenge.active" class="login-form mfa-challenge-form" @submit.prevent="verifyMfaLogin">
+          <div class="security-callout">
+            <i class="ph ph-device-mobile" aria-hidden="true"></i>
+            <div>
+              <strong>Deuxième étape de connexion</strong>
+              <p>Saisissez le code de votre application d’authentification ou un code de récupération.</p>
+            </div>
+          </div>
+          <totp-code-input
+            v-if="mfaLoginMode === 'totp'"
+            v-model="mfaLoginDigits"
+            label="Code de sécurité"
+            :error="Boolean(mfaLoginError)"
+            autofocus
+          ></totp-code-input>
+          <label v-else>
+            Code de récupération
+            <input v-model="mfaChallenge.code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" autofocus @input="mfaLoginError = ''" />
+          </label>
+          <button class="mfa-mode-toggle" type="button" @click="setMfaLoginMode(mfaLoginMode === 'totp' ? 'recovery' : 'totp')">
+            {{ mfaLoginMode === 'totp' ? 'Utiliser un code de récupération' : 'Utiliser un code à six chiffres' }}
+          </button>
+          <p v-if="mfaLoginError" class="form-warning">{{ mfaLoginError }}</p>
+          <button class="primary-button login-submit" type="submit" :disabled="authLoading || !mfaLoginCodeComplete">{{ authLoading ? 'Vérification…' : 'Valider la connexion' }}</button>
+          <button class="ghost-button" type="button" @click="resetMfaChallenge">Utiliser un autre compte</button>
+        </form>
+        <form v-if="!authFlowPending && !mfaRecoveryCodes.length && !mustEnrollMfa && !mfaChallenge.active && !mustChangePassword" class="login-form" @submit.prevent="login">
           <label>
             Identifiant
             <input v-model="loginForm.username" autocomplete="username" autofocus />
@@ -2990,7 +3592,7 @@ const app = createApp({
             {{ authLoading ? 'Connexion...' : 'Se connecter' }}
           </button>
         </form>
-        <form v-else class="login-form forced-password-form" @submit.prevent="changePassword">
+        <form v-if="!authFlowPending && mustChangePassword" class="login-form forced-password-form" @submit.prevent="changePassword">
           <p class="form-warning password-required-note">Ce compte utilise un mot de passe temporaire. Choisis un nouveau mot de passe pour accéder à Compta Zik.</p>
           <div class="password-grid login-password-grid">
             <label>
@@ -3079,7 +3681,7 @@ const app = createApp({
             <button class="ghost-button" type="button" @click="logout">Se déconnecter</button>
           </div>
         </form>
-        <div v-if="!mustChangePassword" class="api-form login-api">
+        <div v-if="!isAuthenticated && !mfaChallenge.active" class="api-form login-api">
           <input v-model="apiBase" aria-label="Base API" />
           <input type="number" v-model.number="accountingYearInput" min="2000" max="2100" aria-label="Année" />
           <button @click="saveApiBase">Appliquer</button>
@@ -4210,6 +4812,105 @@ const app = createApp({
             <p class="form-help" :class="{ ready: avatarFile }">{{ avatarFile ? 'Image prête à être envoyée.' : 'Choisissez une image PNG, JPEG ou WebP pour activer le changement.' }}</p>
           </section>
 
+          <section v-if="can('ACCOUNT_USER') && !mustChangePassword" class="panel security-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Sécurité du compte</p>
+                <h2>Authentification à deux facteurs</h2>
+                <span>Codes temporaires compatibles avec les applications TOTP</span>
+              </div>
+              <span :class="['security-status', twoFactorStatus?.enabled ? 'enabled' : 'disabled']">
+                <i :class="twoFactorStatus?.enabled ? 'ph ph-shield-check' : 'ph ph-shield-warning'" aria-hidden="true"></i>
+                {{ twoFactorStatus?.enabled ? 'Activée' : 'Non activée' }}
+              </span>
+            </div>
+
+            <div v-if="twoFactorLoading && !twoFactorStatus" class="auth-pending compact" role="status">
+              <span class="loading-ring" aria-hidden="true"></span>
+              <p>Chargement de la configuration…</p>
+            </div>
+
+            <template v-else-if="twoFactorStatus?.enabled">
+              <div class="security-summary">
+                <div>
+                  <span>Protection active depuis</span>
+                  <strong>{{ formatDateTime(twoFactorStatus.activatedAt) }}</strong>
+                </div>
+                <div>
+                  <span>Codes de récupération disponibles</span>
+                  <strong>{{ twoFactorStatus.recoveryCodesRemaining }}</strong>
+                </div>
+              </div>
+              <div v-if="isAdministrator" class="security-callout compact">
+                <i class="ph ph-lock-key" aria-hidden="true"></i>
+                <div><strong>Protection obligatoire</strong><p>La double authentification ne peut pas être désactivée durablement sur un compte administrateur.</p></div>
+              </div>
+              <div class="mfa-actions">
+                <button class="ghost-button" type="button" @click="mfaAccountAction = mfaAccountAction === 'recovery' ? '' : 'recovery'">Régénérer les codes de récupération</button>
+                <button v-if="!isAdministrator" class="danger-outline-button" type="button" @click="mfaAccountAction = mfaAccountAction === 'disable' ? '' : 'disable'">Désactiver la 2FA</button>
+              </div>
+              <form v-if="mfaAccountAction === 'recovery'" class="security-inline-form" @submit.prevent="regenerateRecoveryCodes">
+                <label>
+                  Code TOTP ou code de récupération
+                  <input v-model="mfaRecoveryForm.code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" />
+                </label>
+                <button class="primary-button" type="submit" :disabled="twoFactorLoading">Générer de nouveaux codes</button>
+              </form>
+              <form v-if="mfaAccountAction === 'disable' && !isAdministrator" class="security-inline-form security-disable-form" @submit.prevent="disableTwoFactor">
+                <label>
+                  Mot de passe actuel
+                  <input v-model="mfaDisableForm.password" type="password" autocomplete="current-password" />
+                </label>
+                <label>
+                  Code TOTP ou de récupération
+                  <input v-model="mfaDisableForm.code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" />
+                </label>
+                <button class="danger-outline-button" type="submit" :disabled="twoFactorLoading">Confirmer la désactivation</button>
+              </form>
+            </template>
+
+            <template v-else>
+              <div class="security-callout optional">
+                <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                <div>
+                  <strong>{{ isAdministrator ? 'Activation requise' : 'Renforcez la sécurité de votre compte' }}</strong>
+                  <p>{{ isAdministrator ? 'Terminez l’enrôlement pour poursuivre.' : 'Cette protection est facultative pour un compte non administrateur et fortement recommandée.' }}</p>
+                </div>
+              </div>
+              <button v-if="mfaAccountAction !== 'setup'" class="primary-button" type="button" @click="mfaAccountAction = 'setup'">Activer la double authentification</button>
+              <form v-else-if="!mfaSetup" class="security-inline-form" @submit.prevent="beginMfaSetup">
+                <label>
+                  Confirmez votre mot de passe
+                  <input v-model="mfaSetupForm.password" type="password" autocomplete="current-password" />
+                </label>
+                <div class="mfa-actions">
+                  <button class="primary-button" type="submit" :disabled="twoFactorLoading">Générer mon QR code</button>
+                  <button class="ghost-button" type="button" @click="mfaAccountAction = ''">Annuler</button>
+                </div>
+              </form>
+              <form v-else class="mfa-enrollment-grid account-mfa-grid" @submit.prevent="activateTwoFactor">
+                <div class="mfa-qr" v-html="mfaQrSvg" aria-label="QR code TOTP"></div>
+                <div class="mfa-steps">
+                  <ol>
+                    <li>Scannez le QR code avec votre application TOTP.</li>
+                    <li>Saisissez le code à six chiffres affiché.</li>
+                  </ol>
+                  <details><summary>Saisie manuelle</summary><code class="mfa-secret">{{ mfaSetup.secret }}</code></details>
+                  <totp-code-input
+                    v-model="mfaSetupDigits"
+                    label="Code de vérification"
+                    :error="Boolean(mfaSetupError)"
+                  ></totp-code-input>
+                  <p v-if="mfaSetupError" class="form-warning">{{ mfaSetupError }}</p>
+                  <div class="mfa-actions">
+                    <button class="primary-button" type="submit" :disabled="twoFactorLoading || !mfaSetupCodeComplete">Activer</button>
+                    <button class="ghost-button" type="button" @click="mfaSetup = null">Recommencer</button>
+                  </div>
+                </div>
+              </form>
+            </template>
+          </section>
+
           <section v-if="can('ACCOUNT_USER') || mustChangePassword" class="panel">
             <div class="panel-head">
               <div>
@@ -4689,4 +5390,5 @@ const app = createApp({
   `,
 });
 
+app.component("totp-code-input", TotpCodeInput);
 app.mount("#app");
