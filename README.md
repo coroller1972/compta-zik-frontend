@@ -45,3 +45,14 @@ La base API peut etre changee dans l'ecran `Configuration`; elle est stockee dan
 - `Créneaux individuels`: demi-heures disponibles par professeur, jour et horaire, sur les plages `11:30-14:00` et `16:30-18:00`.
 - `Facturation`: preparation globale des factures eleves et demandes de facture separees par professeur.
 - `Configuration`: liste de transfert des semaines de vacances scolaires, marquees dans la grille de presences mais toujours cliquables.
+
+
+## Tests de session
+
+Exécuter `node --test tests/session-transport.test.mjs` depuis le dossier frontend. Ces tests n’installent aucune dépendance.
+
+Le transport HTTP partage un seul renouvellement en cours entre les requêtes d’un même onglet. Une réponse 401 tardive réutilise le jeton déjà renouvelé ; chaque requête est rejouée au plus une fois. Les réponses d’une ancienne session ne peuvent pas écraser une nouvelle connexion. La déconnexion attend une rotation en cours pour révoquer le cookie courant. Les jetons d’accès restent en mémoire.
+
+## Import / Export et sauvegardes
+
+L'écran **Import / Export** permet de créer et télécharger une sauvegarde ZIP complète, de retrouver les archives automatiques sur le serveur et de restaurer un ZIP après vérification et confirmation explicite. Les factures PDF, leurs statuts et les liens de facturation sont conservés. Une sauvegarde complète précède chaque import JSON et chaque restauration ; son échec bloque le remplacement. L'export JSON reste disponible pour les données de saisie et n'inclut pas les documents. Ces actions exigent la permission `IMPORT_EXPORT`.

@@ -1,5 +1,6 @@
 import { createApp, computed, nextTick, reactive, ref, watch } from "./vendor/vue.esm-browser.prod.js";
 import qrcode from "./vendor/qrcode-generator.min.mjs";
+import { createSessionTransport } from "./session-transport.mjs";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -33,7 +34,7 @@ const EXPENSE_CATEGORIES = [
   { value: "OTHER", label: "Autre" },
 ];
 const CONFIG_PERMISSIONS = ["CONFIG_TEACHER", "CONFIG_FINANCIALS", "CONFIG_TERMS", "CONFIG_HOLIDAYS", "CONFIG_AUDIT"];
-const BUSINESS_READ_PERMISSIONS = ["PRESENCE_READ", "MUSICIENS_READ", "GROUPS_READ", "EXPENSES_READ", "BILLING_READ"];
+const BUSINESS_READ_PERMISSIONS = ["PRESENCE_READ", "MUSICIENS_READ", "GROUPS_READ", "EXPENSES_READ", "BILLING_READ", "MUSICIENS_ARCHIVED", "CONFIG_TEACHER", "CONFIG_FINANCIALS", "CONFIG_TERMS", "CONFIG_HOLIDAYS"];
 
 const demoState = {
   settings: {
@@ -156,8 +157,8 @@ function normalizeSnapshot(snapshot) {
     ...snapshot,
     settings: {
       ...settings,
-      teacherHourlyRate: Number(settings.teacherHourlyRate) || DEFAULT_TEACHER_HOURLY_RATE,
-      groupMembershipFee: Number(settings.groupMembershipFee) || DEFAULT_GROUP_MEMBERSHIP_FEE,
+      teacherHourlyRate: settings.teacherHourlyRate == null ? null : Number(settings.teacherHourlyRate),
+      groupMembershipFee: settings.groupMembershipFee == null ? null : Number(settings.groupMembershipFee),
       individualCourseHours: Number(settings.individualCourseHours) || COURSE_DURATION_HOURS,
       workshopHours: Number(settings.workshopHours) || WORKSHOP_DURATION_HOURS,
       schoolHolidayWeeks: settings.schoolHolidayWeeks || [],
@@ -415,6 +416,12 @@ const app = createApp({
     const apiStatus = ref(authSession.value ? "connecté" : "déconnecté");
     const currentUser = ref(normalizeAuthUser(authSession.value?.user));
     const apiBase = ref(API_BASE);
+    const sessionTransport = createSessionTransport({
+      getSession: () => authSession.value,
+      applySession: storeAuthSession,
+      clearSession: clearAuthSession,
+      getApiBase: () => apiBase.value,
+    });
     const loginError = ref("");
     const authLoading = ref(false);
     const authFlowPending = ref(false);
@@ -467,6 +474,15 @@ const app = createApp({
     const importPayload = ref(null);
     const importAnalysis = ref(null);
     const importConfirmation = ref("");
+    const backupFiles = ref([]);
+    const backupListLoaded = ref(false);
+    const transferBusy = ref(false);
+    const selectedRestoreFile = ref(null);
+    const restoreAnalysis = ref(null);
+    const restoreConfirmation = ref("");
+    watch(activeView, (view) => {
+      if (view === "data-transfer" && can("IMPORT_EXPORT")) loadBackups();
+    });
     const currentUserAvatarUrl = ref("");
     const avatarFile = ref(null);
     const authUsers = ref([]);
@@ -1161,6 +1177,12 @@ const app = createApp({
           displayOrder: Number(term.displayOrder) || index + 1,
         })),
       };
+
+      if (!can("CONFIG_FINANCIALS")) {
+        for (const field of ["teacherHourlyRate", "groupMembershipFee", "individualCourseHours", "workshopHours"]) delete payload[field];
+      }
+      if (!can("CONFIG_TERMS")) delete payload.terms;
+      if (!can("CONFIG_HOLIDAYS")) delete payload.schoolHolidayWeeks;
 
       const savedSettings = await requestResource("PUT", `accounting-years/${state.settings.year}/settings`, payload, {
         successMessage: "Configuration enregistrée",
@@ -1996,6 +2018,11 @@ const app = createApp({
     }
 
     function setAuthSession(session) {
+      sessionTransport.invalidate();
+      storeAuthSession(session);
+    }
+
+    function storeAuthSession(session) {
       const { refreshToken: _discardedRefreshToken, ...safeSession } = session;
       authSession.value = safeSession;
       currentUser.value = normalizeAuthUser(safeSession.user);
@@ -2103,6 +2130,7 @@ const app = createApp({
     }
 
     function clearAuthSession() {
+      sessionTransport.invalidate();
       revokeCurrentAvatarUrl();
       revokeAuthUserAvatarUrls();
       authSession.value = null;
@@ -2116,39 +2144,12 @@ const app = createApp({
       apiStatus.value = "déconnecté";
     }
 
-    async function refreshSession(silent = false) {
-      try {
-        const response = await fetch(`${apiBase.value}/auth/refresh`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: "{}",
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        setAuthSession(await response.json());
-        return true;
-      } catch (error) {
-        if (!silent) console.warn("API POST auth/refresh failed", error);
-        clearAuthSession();
-        return false;
-      }
+    function refreshSession(silent = false) {
+      return sessionTransport.refreshSession(silent);
     }
 
-    async function apiFetch(resource, options = {}, retry = true) {
-      const headers = new Headers(options.headers || {});
-      if (authSession.value?.accessToken) {
-        headers.set("Authorization", `${authSession.value.tokenType || "Bearer"} ${authSession.value.accessToken}`);
-      }
-      const response = await fetch(`${apiBase.value}/${resource.replace(/^\/+/, "")}`, {
-        ...options,
-        credentials: "include",
-        headers,
-      });
-      if (response.status === 401 && retry && await refreshSession()) {
-        return apiFetch(resource, options, false);
-      }
-      if (response.status === 401) clearAuthSession();
-      return response;
+    function apiFetch(resource, options = {}, retry = true) {
+      return sessionTransport.apiFetch(resource, options, retry);
     }
 
     async function loadBillingSummary() {
@@ -2204,6 +2205,7 @@ const app = createApp({
     }
 
     async function loadTermAttendance(year, termId) {
+      if (!can("PRESENCE_READ")) return;
       try {
         const response = await apiFetch(`accounting-years/${year}/terms/${termId}/attendance`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -3030,6 +3032,9 @@ const app = createApp({
     }
 
     async function logout() {
+      // Revoke the cookie produced by an ongoing rotation before clearing the local session.
+      await sessionTransport.waitForRefresh();
+      sessionTransport.invalidate();
       try {
         await apiFetch("auth/logout", {
           method: "POST",
@@ -3065,6 +3070,107 @@ const app = createApp({
 
     function teacherRequestText(row) {
       return `Demande de facture: ${fullName(row.teacher)} - ${selectedTerm.value.name} ${state.settings.year} - ${row.individualHours.toFixed(2)} h cours + ${row.workshopHours.toFixed(2)} h groupes - Total ${money(row.totalDue)}`;
+    }
+
+    async function loadBackups() {
+      if (!can("IMPORT_EXPORT")) return;
+      try {
+        const response = await apiFetch("data/backups");
+        if (!response.ok) throw new Error(await apiErrorMessage(response, "Liste des sauvegardes indisponible"));
+        backupFiles.value = await response.json();
+        backupListLoaded.value = true;
+      } catch (error) {
+        backupListLoaded.value = false;
+        showToast(error.message, "error");
+      }
+    }
+
+    async function downloadBackup(fileName) {
+      if (!can("IMPORT_EXPORT")) return;
+      try {
+        const response = await apiFetch(`data/backups/${encodeURIComponent(fileName)}`);
+        if (!response.ok) throw new Error(await apiErrorMessage(response, "Téléchargement impossible"));
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    }
+
+    async function createBackup() {
+      if (!can("IMPORT_EXPORT") || transferBusy.value) return;
+      transferBusy.value = true;
+      try {
+        const response = await apiFetch("data/backups", { method: "POST" });
+        if (!response.ok) throw new Error(await apiErrorMessage(response, "Sauvegarde impossible"));
+        const backup = await response.json();
+        showToast("Sauvegarde complète créée", "success");
+        await loadBackups();
+        await downloadBackup(backup.fileName);
+      } catch (error) {
+        showToast(error.message, "error");
+      } finally {
+        transferBusy.value = false;
+      }
+    }
+
+    function selectRestoreFile(event) {
+      selectedRestoreFile.value = event.target.files?.[0] || null;
+      restoreAnalysis.value = null;
+      restoreConfirmation.value = "";
+    }
+
+    async function analyzeRestore() {
+      if (!can("IMPORT_EXPORT") || !selectedRestoreFile.value || transferBusy.value) return;
+      if (selectedRestoreFile.value.size > 64 * 1024 * 1024) {
+        showToast("L’archive dépasse la limite de 64 Mio", "error");
+        return;
+      }
+      transferBusy.value = true;
+      restoreAnalysis.value = null;
+      restoreConfirmation.value = "";
+      try {
+        const response = await apiFetch("data/restore/analyze", {
+          method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: selectedRestoreFile.value,
+        });
+        if (!response.ok) throw new Error(await apiErrorMessage(response, "Archive invalide"));
+        restoreAnalysis.value = await response.json();
+      } catch (error) {
+        showToast(error.message, "error");
+      } finally {
+        transferBusy.value = false;
+      }
+    }
+
+    async function restoreBackup() {
+      if (!can("IMPORT_EXPORT") || transferBusy.value || !selectedRestoreFile.value || !restoreAnalysis.value?.valid) return;
+      if (restoreConfirmation.value !== restoreAnalysis.value.confirmationValue) return;
+      transferBusy.value = true;
+      try {
+        const response = await apiFetch("data/restore", {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream", "X-Restore-Confirmation": restoreConfirmation.value },
+          body: selectedRestoreFile.value,
+        });
+        if (!response.ok) throw new Error(await apiErrorMessage(response, "Restauration refusée"));
+        const result = await response.json();
+        restoreAnalysis.value = null;
+        restoreConfirmation.value = "";
+        selectedRestoreFile.value = null;
+        importAnalysis.value = null;
+        importPayload.value = null;
+        showToast(`Restauration terminée · ${result.documents} documents restaurés`, "success");
+        await loadFromApi();
+      } catch (error) {
+        showToast(error.message, "error");
+      } finally {
+        await loadBackups();
+        transferBusy.value = false;
+      }
     }
 
     async function exportData() {
@@ -3120,8 +3226,12 @@ const app = createApp({
     }
 
     async function analyzeImport() {
-      if (!can("IMPORT_EXPORT")) return;
+      if (!can("IMPORT_EXPORT") || transferBusy.value) return;
       if (!selectedImportFile.value) return;
+      transferBusy.value = true;
+      importAnalysis.value = null;
+      importPayload.value = null;
+      importConfirmation.value = "";
       try {
         const payload = JSON.parse(await selectedImportFile.value.text());
         const analysis = await requestResource("POST", "data/import/analyze", payload, {
@@ -3135,12 +3245,15 @@ const app = createApp({
       } catch (error) {
         console.warn("Import analysis failed", error);
         showToast("Fichier JSON invalide", "error");
+      } finally {
+        transferBusy.value = false;
       }
     }
 
     async function importData() {
-      if (!can("IMPORT_EXPORT") || !importAnalysis.value?.valid || !importPayload.value) return;
+      if (!can("IMPORT_EXPORT") || transferBusy.value || !importAnalysis.value?.valid || !importPayload.value) return;
       if (importConfirmation.value !== importAnalysis.value.confirmationValue) return;
+      transferBusy.value = true;
       try {
         const response = await apiFetch("data/import", {
           method: "POST",
@@ -3149,7 +3262,9 @@ const app = createApp({
         });
         if (!response.ok) throw new Error(await apiErrorMessage(response, `HTTP ${response.status}`));
         const result = await response.json();
-        showToast(`Import terminé · sauvegarde ${result.backupFile}`, "success");
+        showToast("Import terminé · sauvegarde ZIP disponible ci-dessus", "success");
+        restoreAnalysis.value = null;
+        restoreConfirmation.value = "";
         await loadFromApi();
         selectedImportFile.value = null;
         importPayload.value = null;
@@ -3158,6 +3273,9 @@ const app = createApp({
       } catch (error) {
         console.warn("Import JSON failed", error);
         showToast(error.message || "Import JSON refusé côté backend", "error");
+      } finally {
+        await loadBackups();
+        transferBusy.value = false;
       }
     }
 
@@ -3167,7 +3285,7 @@ const app = createApp({
     }
 
     function auditActionLabel(action) {
-      return { CREATED: "Création", UPDATED: "Modification", DELETED: "Suppression", SETTINGS_UPDATED: "Configuration modifiée", STATUS_CHANGED: "Cycle modifié", SENT: "Document envoyé", CANCELLED: "Document annulé", CORRECTED: "Document corrigé" }[action] || action;
+      return { CREATED: "Création", UPDATED: "Modification", DELETED: "Suppression", SETTINGS_UPDATED: "Configuration modifiée", STATUS_CHANGED: "Cycle modifié", RESTORED: "Sauvegarde restaurée", SENT: "Document envoyé", CANCELLED: "Document annulé", CORRECTED: "Document corrigé" }[action] || action;
     }
 
     function auditUserLabel(event) {
@@ -3318,6 +3436,8 @@ const app = createApp({
       selectedImportFile,
       importAnalysis,
       importConfirmation,
+      backupFiles, backupListLoaded, transferBusy, selectedRestoreFile, restoreAnalysis, restoreConfirmation,
+      createBackup, loadBackups, downloadBackup, selectRestoreFile, analyzeRestore, restoreBackup,
       musicianForm,
       teacherForm,
       groupForm,
@@ -4713,9 +4833,51 @@ const app = createApp({
         <section v-if="activeView === 'data-transfer' && !mustChangePassword && can('IMPORT_EXPORT')" class="view-stack">
           <section class="panel">
             <div class="panel-head">
+              <div><h2>Sauvegarde complète</h2><span>Archive ZIP avec les données et les PDF originaux</span></div>
+              <button class="primary-button" @click="createBackup" :disabled="transferBusy">Créer et télécharger une sauvegarde</button>
+            </div>
+            <p class="muted">Les documents, leurs statuts, les présences facturées, les ajustements et le journal d’audit sont inclus. Une archive est créée automatiquement avant chaque import ou restauration.</p>
+            <p v-if="transferBusy" role="status">Opération en cours…</p>
+            <div class="panel-head">
+              <h3>Archives disponibles sur le serveur</h3>
+              <button class="ghost-button" @click="loadBackups" :disabled="transferBusy">Actualiser</button>
+            </div>
+            <p v-if="backupListLoaded && !backupFiles.length" class="muted">Aucune sauvegarde ZIP disponible.</p>
+            <ul v-if="backupFiles.length" class="backup-list">
+              <li v-for="backup in backupFiles" :key="backup.fileName">
+                <button class="ghost-button" @click="downloadBackup(backup.fileName)">{{ backup.fileName }}</button>
+                <small>{{ new Date(backup.createdAt).toLocaleString('fr-FR') }} · {{ (backup.sizeBytes / 1024 / 1024).toFixed(2) }} Mio</small>
+              </li>
+            </ul>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div><h2>Restaurer une sauvegarde complète</h2><span>Rétablit les données et les PDF sans recalculer les factures</span></div>
+              <button class="primary-button" @click="analyzeRestore" :disabled="!selectedRestoreFile || transferBusy">Vérifier l’archive</button>
+            </div>
+            <label class="premium-file-picker">
+              <input class="visually-hidden-file" type="file" accept="application/zip,.zip" @change="selectRestoreFile" :disabled="transferBusy" />
+              <span class="premium-file-button">Choisir une archive ZIP</span>
+              <span class="premium-file-name">{{ selectedRestoreFile?.name || 'Aucune archive sélectionnée' }}</span>
+            </label>
+            <p class="form-help">ZIP de 64 Mio maximum, créé avec cette version du schéma. La vérification ne modifie aucune donnée.</p>
+            <div v-if="restoreAnalysis?.valid" class="import-analysis">
+              <strong>Archive vérifiée · {{ restoreAnalysis.documents }} documents · {{ restoreAnalysis.pdfs }} PDF</strong>
+              <p class="form-warning">La restauration remplacera toutes les données métier. Le journal d’audit existant sera conservé et complété.</p>
+              <div class="import-confirmation">
+                <label for="restore-confirmation">Saisissez <code>{{ restoreAnalysis.confirmationValue }}</code> pour confirmer</label>
+                <input id="restore-confirmation" v-model="restoreConfirmation" autocomplete="off" :disabled="transferBusy" />
+                <button class="danger-outline-button" @click="restoreBackup" :disabled="transferBusy || restoreConfirmation !== restoreAnalysis.confirmationValue">Restaurer toutes les données et les PDF</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
               <div>
                 <h2>Export JSON</h2>
-                <span>Données métier du service, hors fichiers PDF générés</span>
+                <span>Données de saisie, sans documents ni liens de facturation</span>
               </div>
               <button class="primary-button" @click="exportData">Exporter</button>
             </div>
@@ -4726,13 +4888,13 @@ const app = createApp({
             <div class="panel-head">
               <div>
                 <h2>Import JSON</h2>
-                <span>Analyse obligatoire avant toute restauration</span>
+                <span>Analyse obligatoire avant le remplacement des données</span>
               </div>
-              <button class="primary-button" @click="analyzeImport" :disabled="!selectedImportFile" :title="selectedImportFile ? '' : 'Sélectionnez d’abord un fichier JSON.'">Analyser le fichier</button>
+              <button class="primary-button" @click="analyzeImport" :disabled="!selectedImportFile || transferBusy" :title="selectedImportFile ? '' : 'Sélectionnez d’abord un fichier JSON.'">Analyser le fichier</button>
             </div>
             <div class="premium-file-row">
               <label class="premium-file-picker">
-                <input class="visually-hidden-file" type="file" accept="application/json,.json" @change="selectImportFile" />
+                <input class="visually-hidden-file" type="file" accept="application/json,.json" @change="selectImportFile" :disabled="transferBusy" />
                 <span class="premium-file-button">Choisir un fichier JSON</span>
                 <span class="premium-file-name">{{ selectedImportFile?.name || 'Aucun fichier sélectionné' }}</span>
               </label>
@@ -4757,8 +4919,8 @@ const app = createApp({
               <div v-if="importAnalysis.valid" class="import-confirmation">
                 <label for="import-confirmation">Saisissez <code>{{ importAnalysis.confirmationValue }}</code> pour confirmer</label>
                 <input id="import-confirmation" v-model="importConfirmation" autocomplete="off" />
-                <button class="danger-outline-button" @click="importData" :disabled="importConfirmation !== importAnalysis.confirmationValue">Remplacer toutes les données</button>
-                <small>Une sauvegarde JSON automatique sera créée par le serveur avant le remplacement.</small>
+                <button class="danger-outline-button" @click="importData" :disabled="transferBusy || importConfirmation !== importAnalysis.confirmationValue">Remplacer toutes les données</button>
+                <small>Une sauvegarde ZIP complète (données et PDF) sera créée avant le remplacement. Si elle échoue, l’import est annulé.</small>
               </div>
             </div>
           </section>

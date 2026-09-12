@@ -3564,3 +3564,22 @@ td strong {
   .provider-activity-totals strong { font-size: 12px; white-space: nowrap; }
   .provider-activity-list { grid-template-columns: 1fr; padding: 14px; }
 }
+
+.backup-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow: auto;
+}
+.backup-list li { display: grid; gap: 4px; }
+.backup-list button {
+  justify-self: start;
+  text-align: left;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  white-space: normal;
+}
+.backup-list small { color: var(--muted); }
