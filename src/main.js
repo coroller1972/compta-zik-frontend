@@ -462,6 +462,10 @@ const app = createApp({
     const preparedStudentInvoices = ref(false);
     const studentInvoiceDocuments = ref([]);
     const studentInvoiceSummaryDocument = ref(null);
+    const markingStudentInvoicesSent = ref(false);
+    const studentInvoicesToSend = computed(() => studentInvoiceDocuments.value.filter(
+      document => document.type === "STUDENT_INVOICE" && document.musicianId && document.status === "GENERATED",
+    ));
     const teacherInvoiceRequestDocuments = ref([]);
     const teacherEndWeeks = reactive({});
     const documentHistory = ref([]);
@@ -1919,6 +1923,28 @@ const app = createApp({
         const index = collection.value.findIndex((document) => document.id === updated.id);
         if (index >= 0) collection.value.splice(index, 1, updated);
       });
+    }
+
+    async function markAllStudentInvoicesSent() {
+      if (!can("BILLING_PRINT") || markingStudentInvoicesSent.value || !studentInvoicesToSend.value.length) return;
+      if (!ensureYearNotClosed("Le marquage est verrouillé")) return;
+      const count = studentInvoicesToSend.value.length;
+      const year = state.settings.year;
+      const term = selectedTerm.value;
+      if (!window.confirm(`Après transmission du PDF global, marquer les ${count} facture(s) individuelle(s) validée(s) de ${term.name} ${year} comme envoyées ?`)) return;
+      markingStudentInvoicesSent.value = true;
+      try {
+        const updated = await requestResource("POST", `accounting-years/${year}/terms/${term.id}/student-invoices/sent`, null, {
+          errorMessage: "Les factures n’ont pas pu être marquées comme envoyées",
+          preserveApiStatus: true,
+        });
+        if (updated) {
+          if (state.settings.year === year && selectedTerm.value.id === term.id) updated.forEach(replaceLoadedDocument);
+          showToast(updated.length ? `${updated.length} facture(s) marquée(s) comme envoyée(s)` : "Aucune nouvelle facture à marquer comme envoyée", "success");
+        }
+      } finally {
+        markingStudentInvoicesSent.value = false;
+      }
     }
 
     async function markDocumentSent(document) {
@@ -3541,6 +3567,9 @@ const app = createApp({
       documentForMusician,
       documentForTeacher,
       markDocumentSent,
+      markAllStudentInvoicesSent,
+      markingStudentInvoicesSent,
+      studentInvoicesToSend,
       cancelFinalDocument,
       correctFinalDocument,
       documentStatusLabel,
@@ -4678,6 +4707,7 @@ const app = createApp({
                 </a>
                 <button v-if="can('BILLING_PRINT')" class="primary-button" @click="prepareAllStudentInvoices">Prévisualiser les factures</button>
                 <button v-if="can('BILLING_PRINT') && studentInvoiceDocuments.some(document => document.status === 'DRAFT')" class="danger-outline-button" @click="finalizeAllStudentInvoices">Valider définitivement</button>
+                <button v-if="can('BILLING_PRINT')" class="ghost-button" @click="markAllStudentInvoicesSent" :disabled="markingStudentInvoicesSent || yearClosed || !studentInvoicesToSend.length" :title="yearClosed ? 'L’année est clôturée.' : !studentInvoicesToSend.length ? 'Aucune facture individuelle validée à marquer comme envoyée.' : 'Marquer les factures individuelles validées du trimestre comme envoyées.'">{{ markingStudentInvoicesSent ? 'Marquage en cours…' : 'Tout marquer comme envoyé' }}</button>
               </div>
             </div>
             <div class="invoice-summary">
@@ -4695,6 +4725,7 @@ const app = createApp({
                 <small>{{ isFirstTerm ? 'Cotisation annuelle appliquée' : 'Cotisation annuelle déjà traitée au T1' }}</small>
               </article>
             </div>
+            <p v-if="can('BILLING_PRINT') && studentInvoiceDocuments.length" class="muted">Après transmission du PDF global au service de facturation, vous pouvez marquer toutes les factures individuelles validées comme envoyées.</p>
             <p v-if="preparedStudentInvoices" class="success-note">{{ studentInvoiceDocuments.length }} brouillons disponibles pour {{ selectedTerm.name }} {{ state.settings.year }}. Vous pouvez les régénérer jusqu’à leur validation définitive.</p>
             <div class="attendance-table-wrap">
               <table>
@@ -4720,7 +4751,7 @@ const app = createApp({
                       <span v-else-if="documentForMusician(row.musician.id)" class="muted">Brouillon à régénérer</span>
                       <span v-else class="muted">Non généré</span>
                       <div v-if="documentForMusician(row.musician.id) && can('BILLING_PRINT')" class="document-row-actions">
-                        <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="markDocumentSent(documentForMusician(row.musician.id))">Marquer envoyé</button>
+                        <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="markDocumentSent(documentForMusician(row.musician.id))" :disabled="markingStudentInvoicesSent">Marquer envoyé</button>
                         <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="cancelFinalDocument(documentForMusician(row.musician.id))">Annuler</button>
                         <button v-if="['GENERATED', 'SENT'].includes(documentForMusician(row.musician.id).status)" @click="correctFinalDocument(documentForMusician(row.musician.id))">Corriger</button>
                       </div>

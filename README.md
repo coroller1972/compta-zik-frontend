@@ -56,3 +56,5 @@ Le transport HTTP partage un seul renouvellement en cours entre les requêtes d�
 ## Import / Export et sauvegardes
 
 L'écran **Import / Export** permet de créer et télécharger une sauvegarde ZIP complète, de retrouver les archives automatiques sur le serveur et de restaurer un ZIP après vérification et confirmation explicite. Les factures PDF, leurs statuts et les liens de facturation sont conservés. Une sauvegarde complète précède chaque import JSON et chaque restauration ; son échec bloque le remplacement. L'export JSON reste disponible pour les données de saisie et n'inclut pas les documents. Ces actions exigent la permission `IMPORT_EXPORT`.
+
+Dans **Facturation → Factures élèves**, le bouton **Tout marquer comme envoyé** permet d'enregistrer en une action la transmission des factures individuelles validées après l'envoi du PDF global au service de facturation. Une confirmation indique le nombre de factures et le trimestre. Les actions individuelles restent disponibles. Le bouton exige `BILLING_PRINT` et une année non clôturée ; il n'envoie aucun courriel.
