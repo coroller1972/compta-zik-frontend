@@ -1,6 +1,7 @@
 import { createApp, computed, nextTick, reactive, ref, watch } from "./vendor/vue.esm-browser.prod.js";
 import qrcode from "./vendor/qrcode-generator.min.mjs";
 import { createSessionTransport } from "./session-transport.mjs";
+import { AvatarCropDialog } from "./avatar-crop-dialog.mjs";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -424,7 +425,7 @@ const app = createApp({
     });
     const loginError = ref("");
     const authLoading = ref(false);
-    const authFlowPending = ref(false);
+    const authFlowPending = ref(true);
     const loginForm = reactive({
       username: "",
       password: "",
@@ -489,6 +490,10 @@ const app = createApp({
     });
     const currentUserAvatarUrl = ref("");
     const avatarFile = ref(null);
+    const avatarCropFile = ref(null);
+    const avatarUploading = ref(false);
+    const avatarUploadError = ref("");
+    let avatarUploadSequence = 0;
     const authUsers = ref([]);
     const authUserAvatarUrls = reactive({});
     const authRoles = ref([]);
@@ -2157,6 +2162,11 @@ const app = createApp({
 
     function clearAuthSession() {
       sessionTransport.invalidate();
+      avatarUploadSequence += 1;
+      avatarCropFile.value = null;
+      avatarFile.value = null;
+      avatarUploading.value = false;
+      avatarUploadError.value = "";
       revokeCurrentAvatarUrl();
       revokeAuthUserAvatarUrls();
       authSession.value = null;
@@ -2304,6 +2314,10 @@ const app = createApp({
         if (code === "MFA_ALREADY_ENABLED") return "L’authentification à deux facteurs est déjà active";
         if (code === "MFA_NOT_ENABLED") return "L’authentification à deux facteurs n’est pas active";
         if (code === "MFA_ENROLLMENT_REQUIRED") return "L’authentification à deux facteurs doit être activée pour ce compte administrateur";
+        if (code === "PAYLOAD_TOO_LARGE") return "L’image dépasse la taille maximale de 2 Mo";
+        if (code === "UNSUPPORTED_MEDIA_TYPE") return "Choisissez une image PNG, JPEG ou WebP";
+        if (code === "INVALID_AVATAR_FILE") return "Image illisible ou trop grande (10 millions de pixels maximum)";
+        if (code === "AVATAR_PROCESSING_BUSY") return "Le traitement des images est occupé. Réessayez dans un instant.";
         return code || fallback;
       } catch {
         return fallback;
@@ -2701,28 +2715,50 @@ const app = createApp({
 
     function selectAvatarFile(event) {
       avatarFile.value = event.target.files?.[0] || null;
+      event.target.value = "";
     }
 
-    async function uploadAvatar() {
-      if (!can("ACCOUNT_USER")) return;
-      if (!avatarFile.value) return;
+    function openAvatarCrop() {
+      if (!can("ACCOUNT_USER") || !avatarFile.value || avatarUploading.value) return;
+      avatarUploadError.value = "";
+      avatarCropFile.value = avatarFile.value;
+    }
+
+    function cancelAvatarCrop() {
+      if (avatarUploading.value) return;
+      avatarCropFile.value = null;
+      avatarUploadError.value = "";
+    }
+
+    async function uploadAvatar(croppedImage) {
+      if (!can("ACCOUNT_USER") || !avatarCropFile.value || avatarUploading.value || !(croppedImage instanceof Blob)) return;
+      const sequence = ++avatarUploadSequence;
+      const userId = currentUser.value?.id;
+      avatarUploading.value = true;
+      avatarUploadError.value = "";
       try {
         const response = await apiFetch("auth/users/me/avatar", {
           method: "PUT",
           headers: {
-            "Content-Type": avatarFile.value.type || "application/octet-stream",
+            "Content-Type": croppedImage.type,
             "If-Match": "*",
           },
-          body: avatarFile.value,
+          body: croppedImage,
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        updateStoredCurrentUser(await response.json());
+        if (!response.ok) throw new Error(await apiErrorMessage(response, "Avatar non mis à jour"));
+        const user = await response.json();
+        if (sequence !== avatarUploadSequence || currentUser.value?.id !== userId) return;
+        updateStoredCurrentUser(user);
         avatarFile.value = null;
+        avatarCropFile.value = null;
         await loadCurrentAvatar();
-        showToast("Avatar mis à jour", "success");
+        if (sequence === avatarUploadSequence) showToast("Avatar mis à jour", "success");
       } catch (error) {
+        if (sequence !== avatarUploadSequence) return;
         console.warn("API PUT auth/users/me/avatar failed", error);
-        showToast("Avatar non mis à jour", "warning");
+        avatarUploadError.value = error.message || "Avatar non mis à jour";
+      } finally {
+        if (sequence === avatarUploadSequence) avatarUploading.value = false;
       }
     }
 
@@ -3329,9 +3365,11 @@ const app = createApp({
       documentHistory.value = [];
       loadBillingSummary();
     });
-    refreshSession(true).then((restored) => {
+    refreshSession(true).then(async (restored) => {
       if (!restored) return;
-      initializeAuthenticatedSession();
+      await initializeAuthenticatedSession();
+    }).finally(() => {
+      authFlowPending.value = false;
     });
 
     return {
@@ -3394,6 +3432,9 @@ const app = createApp({
       currentUser,
       currentUserAvatarUrl,
       avatarFile,
+      avatarCropFile,
+      avatarUploading,
+      avatarUploadError,
       profileForm,
       passwordForm,
       passwordVisibility,
@@ -3578,6 +3619,8 @@ const app = createApp({
       saveApiBase,
       saveProfile,
       selectAvatarFile,
+      openAvatarCrop,
+      cancelAvatarCrop,
       uploadAvatar,
       deleteAvatar,
       togglePasswordVisibility,
@@ -4999,10 +5042,10 @@ const app = createApp({
                 <span class="premium-file-button">Choisir une image</span>
                 <span class="premium-file-name">{{ avatarFile?.name || 'Aucune image sélectionnée' }}</span>
               </label>
-              <button class="ghost-button" @click="uploadAvatar" :disabled="!avatarFile" :title="avatarFile ? '' : 'Choisissez une image avant de changer l’avatar.'">Changer l'avatar</button>
+              <button class="ghost-button" @click="openAvatarCrop" :disabled="!avatarFile || avatarUploading" :title="avatarFile ? '' : 'Choisissez une image avant de changer l’avatar.'">Changer l'avatar</button>
               <button class="ghost-button danger-button" @click="deleteAvatar" :disabled="!currentUser?.avatar" :title="currentUser?.avatar ? '' : 'Aucun avatar enregistré à supprimer.'">Supprimer l'avatar</button>
             </div>
-            <p class="form-help" :class="{ ready: avatarFile }">{{ avatarFile ? 'Image prête à être envoyée.' : 'Choisissez une image PNG, JPEG ou WebP pour activer le changement.' }}</p>
+            <p class="form-help" :class="{ ready: avatarFile }">{{ avatarFile ? 'Cliquez sur « Changer l’avatar » pour recadrer la photo avant de l’envoyer.' : 'Choisissez une image PNG, JPEG ou WebP (10 Mo maximum).' }}</p>
           </section>
 
           <section v-if="can('ACCOUNT_USER') && !mustChangePassword" class="panel security-panel">
@@ -5579,9 +5622,11 @@ const app = createApp({
           </div>
         </div>
       </section>
+      <avatar-crop-dialog :file="avatarCropFile" :busy="avatarUploading" :error="avatarUploadError" @cancel="cancelAvatarCrop" @confirm="uploadAvatar"></avatar-crop-dialog>
     </main>
   `,
 });
 
 app.component("totp-code-input", TotpCodeInput);
+app.component("avatar-crop-dialog", AvatarCropDialog);
 app.mount("#app");

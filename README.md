@@ -53,6 +53,14 @@ Exécuter `node --test tests/session-transport.test.mjs` depuis le dossier front
 
 Le transport HTTP partage un seul renouvellement en cours entre les requêtes d’un même onglet. Une réponse 401 tardive réutilise le jeton déjà renouvelé ; chaque requête est rejouée au plus une fois. Les réponses d’une ancienne session ne peuvent pas écraser une nouvelle connexion. La déconnexion attend une rotation en cours pour révoquer le cookie courant. Les jetons d’accès restent en mémoire.
 
+## Recadrage de l’avatar
+
+Dans **Compte → Profil**, choisir une image puis cliquer sur **Changer l’avatar** ouvre un aperçu carré. Le curseur permet de zoomer de 100 à 400 % ; la photo se déplace à la souris, au doigt ou avec les flèches du clavier (Maj pour un déplacement plus rapide). **Réinitialiser le cadrage** revient au cadrage central initial.
+
+**Valider le recadrage** prépare un PNG de 256 × 256 pixels dans le navigateur puis l’envoie à Identity. **Annuler**, la croix et Échap ferment la fenêtre sans envoyer l’image. Un échec d’envoi conserve le cadrage pour réessayer. Les sources PNG, JPEG et WebP sont limitées à 10 Mo et 25 millions de pixels ; le fichier envoyé reste soumis aux limites de l’API.
+
+Exécuter `node --test tests/*.test.mjs` pour vérifier le recadrage (centrage, zoom et limites de déplacement) et le transport de session, sans installer de dépendance.
+
 ## Import / Export et sauvegardes
 
 L'écran **Import / Export** permet de créer et télécharger une sauvegarde ZIP complète, de retrouver les archives automatiques sur le serveur et de restaurer un ZIP après vérification et confirmation explicite. Les factures PDF, leurs statuts et les liens de facturation sont conservés. Une sauvegarde complète précède chaque import JSON et chaque restauration ; son échec bloque le remplacement. L'export JSON reste disponible pour les données de saisie et n'inclut pas les documents. Ces actions exigent la permission `IMPORT_EXPORT`.
