@@ -116,8 +116,9 @@
   --shadow: none;
 }
 
-/* Thème nuit — automatique, sauf si l'utilisateur a forcé le clair */
-@media (prefers-color-scheme: dark) {
+/* Thème nuit — automatique, sauf si l'utilisateur a forcé le clair.
+   Limité à l'écran : l'impression reste toujours en clair. */
+@media screen and (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --paper: #0F1A1E;
@@ -171,57 +172,59 @@
   }
 }
 
-/* Thème nuit — forcé */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --paper: #0F1A1E;
-  --paper-deep: #0B1417;
-  --card: #16252A;
-  --card-alt: #1B2C31;
-  --track: #16252A;
-  --rail: #22333A;
-  --line: #2A3B40;
-  --line-soft: #22333A;
-  --line-strong: #93A3A5;
-  --ink: #EDE6D8;
-  --ink-soft: #BFC8C6;
-  --ink-muted: #93A3A5;
-  --ink-faint: #768689;
-  --inverse-bg: #EDE6D8;
-  --inverse-ink: #0F1A1E;
-  --petrol: #57A8AE;
-  --petrol-deep: #0E4550;
-  --on-petrol: #0B1417;
-  --on-petrol-deep: #EDE6D8;
-  --on-petrol-muted: #A9CFCB;
-  --petrol-tint: #173A40;
-  --petrol-tint-ink: #9ED6D4;
-  --link: #7CC4C6;
-  --link-hover: #A9DCDC;
-  --brass: #D9A23A;
-  --brass-bright: #E0B45A;
-  --brass-ink: #E3B45C;
-  --brass-tint: #3A2E16;
-  --brass-tint-ink: #F0C979;
-  --on-brass: #0F1A1E;
-  --wordmark-accent: #E0B45A;
-  --avatar-bg: #D9A23A;
-  --avatar-ink: #0F1A1E;
-  --sage: #A9CFC5;
-  --brick: #E0735C;
-  --brick-tint: #3A1E18;
-  --brick-tint-ink: #F2A08E;
-  --series-students: #3E8F99;
-  --series-teachers: #D9A23A;
-  --series-subsidy: #A9CFC5;
-  --series-expenses: #E0735C;
-  --att-present: #57A8AE;
-  --att-absent: #E0735C;
-  --att-cancelled: #8A9A9D;
-  --att-unrecorded: #55666A;
-  --att-current-week: rgba(224, 180, 90, 0.10);
-  --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
-  --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+/* Thème nuit — forcé (écran uniquement) */
+@media screen {
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0F1A1E;
+    --paper-deep: #0B1417;
+    --card: #16252A;
+    --card-alt: #1B2C31;
+    --track: #16252A;
+    --rail: #22333A;
+    --line: #2A3B40;
+    --line-soft: #22333A;
+    --line-strong: #93A3A5;
+    --ink: #EDE6D8;
+    --ink-soft: #BFC8C6;
+    --ink-muted: #93A3A5;
+    --ink-faint: #768689;
+    --inverse-bg: #EDE6D8;
+    --inverse-ink: #0F1A1E;
+    --petrol: #57A8AE;
+    --petrol-deep: #0E4550;
+    --on-petrol: #0B1417;
+    --on-petrol-deep: #EDE6D8;
+    --on-petrol-muted: #A9CFCB;
+    --petrol-tint: #173A40;
+    --petrol-tint-ink: #9ED6D4;
+    --link: #7CC4C6;
+    --link-hover: #A9DCDC;
+    --brass: #D9A23A;
+    --brass-bright: #E0B45A;
+    --brass-ink: #E3B45C;
+    --brass-tint: #3A2E16;
+    --brass-tint-ink: #F0C979;
+    --on-brass: #0F1A1E;
+    --wordmark-accent: #E0B45A;
+    --avatar-bg: #D9A23A;
+    --avatar-ink: #0F1A1E;
+    --sage: #A9CFC5;
+    --brick: #E0735C;
+    --brick-tint: #3A1E18;
+    --brick-tint-ink: #F2A08E;
+    --series-students: #3E8F99;
+    --series-teachers: #D9A23A;
+    --series-subsidy: #A9CFC5;
+    --series-expenses: #E0735C;
+    --att-present: #57A8AE;
+    --att-absent: #E0735C;
+    --att-cancelled: #8A9A9D;
+    --att-unrecorded: #55666A;
+    --att-current-week: rgba(224, 180, 90, 0.10);
+    --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+    --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+  }
 }
 
 body {
@@ -1975,9 +1978,10 @@ td small {
   color: var(--muted);
 }
 
+/* Émargement — DA « Partition » (feuilles imprimables ; l'impression reste en clair) */
 .signature-stack {
   display: grid;
-  gap: 28px;
+  gap: 32px;
 }
 
 .signature-sheet {
@@ -1993,42 +1997,70 @@ td small {
   margin-bottom: 12px;
 }
 
-.signature-head h3,
+.signature-head h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+
 .signature-head span,
 .signature-head strong {
   display: block;
 }
 
 .signature-head span {
-  color: var(--muted);
-  margin-top: 3px;
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+
+.signature-head strong {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .signature-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .signature-table {
   min-width: 980px;
   table-layout: fixed;
+  font-size: 14px;
 }
 
 .signature-table th,
 .signature-table td {
-  border: 1px solid var(--line);
+  padding: 10px 12px;
+  border: 0;
+  border-right: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
   background: var(--card);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.signature-table tr > :last-child {
+  border-right: 0;
+}
+
+.signature-table tbody tr:last-child > * {
+  border-bottom: 0;
 }
 
 .signature-table thead th {
+  border-bottom: 1.5px solid var(--line-strong);
+  background: var(--card-alt);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 400;
   vertical-align: top;
-  background: var(--petrol-tint);
-}
-
-.signature-table thead th.workshop-signature-col,
-.signature-cell.workshop {
-  background: var(--brass-tint);
 }
 
 .signature-table thead span,
@@ -2037,19 +2069,49 @@ td small {
   display: block;
 }
 
-.signature-table thead span,
-.signature-table thead small {
-  color: var(--muted);
+.signature-table thead span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
   font-size: 12px;
+}
+
+.signature-table thead strong {
+  margin-top: 2px;
+  font-weight: 700;
+}
+
+.signature-table thead small {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.signature-table thead .signature-kind {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--rail);
+  color: var(--ink-soft);
+  font-weight: 700;
 }
 
 .signature-week-col,
 .signature-table tbody th {
-  width: 150px;
+  width: 170px;
+}
+
+.signature-table thead .signature-week-col {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .signature-table tbody th {
-  background: var(--card-alt);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
   white-space: normal;
 }
 
@@ -2059,8 +2121,11 @@ td small {
 }
 
 .signature-table tbody th small {
-  color: var(--muted);
   margin-top: 2px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .signature-cell {
@@ -2069,12 +2134,13 @@ td small {
 }
 
 .signature-table .holiday {
-  background: var(--hatch);
-  color: var(--muted);
+  background-color: var(--card);
+  background-image: var(--hatch);
+  color: var(--ink-muted);
 }
 
 .signature-cell span {
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 12px;
 }
 
@@ -2222,12 +2288,7 @@ td small {
   }
 
   .signature-table thead th {
-    background: #edf7f4 !important;
-  }
-
-  .signature-table thead th.workshop-signature-col,
-  .signature-cell.workshop {
-    background: #fff7ed !important;
+    background: var(--card-alt) !important;
   }
 
   .signature-table thead span,

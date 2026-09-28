@@ -113,8 +113,9 @@
   --shadow: none;
 }
 
-/* Thème nuit — automatique, sauf si l'utilisateur a forcé le clair */
-@media (prefers-color-scheme: dark) {
+/* Thème nuit — automatique, sauf si l'utilisateur a forcé le clair.
+   Limité à l'écran : l'impression reste toujours en clair. */
+@media screen and (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --paper: #0F1A1E;
@@ -168,57 +169,59 @@
   }
 }
 
-/* Thème nuit — forcé */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --paper: #0F1A1E;
-  --paper-deep: #0B1417;
-  --card: #16252A;
-  --card-alt: #1B2C31;
-  --track: #16252A;
-  --rail: #22333A;
-  --line: #2A3B40;
-  --line-soft: #22333A;
-  --line-strong: #93A3A5;
-  --ink: #EDE6D8;
-  --ink-soft: #BFC8C6;
-  --ink-muted: #93A3A5;
-  --ink-faint: #768689;
-  --inverse-bg: #EDE6D8;
-  --inverse-ink: #0F1A1E;
-  --petrol: #57A8AE;
-  --petrol-deep: #0E4550;
-  --on-petrol: #0B1417;
-  --on-petrol-deep: #EDE6D8;
-  --on-petrol-muted: #A9CFCB;
-  --petrol-tint: #173A40;
-  --petrol-tint-ink: #9ED6D4;
-  --link: #7CC4C6;
-  --link-hover: #A9DCDC;
-  --brass: #D9A23A;
-  --brass-bright: #E0B45A;
-  --brass-ink: #E3B45C;
-  --brass-tint: #3A2E16;
-  --brass-tint-ink: #F0C979;
-  --on-brass: #0F1A1E;
-  --wordmark-accent: #E0B45A;
-  --avatar-bg: #D9A23A;
-  --avatar-ink: #0F1A1E;
-  --sage: #A9CFC5;
-  --brick: #E0735C;
-  --brick-tint: #3A1E18;
-  --brick-tint-ink: #F2A08E;
-  --series-students: #3E8F99;
-  --series-teachers: #D9A23A;
-  --series-subsidy: #A9CFC5;
-  --series-expenses: #E0735C;
-  --att-present: #57A8AE;
-  --att-absent: #E0735C;
-  --att-cancelled: #8A9A9D;
-  --att-unrecorded: #55666A;
-  --att-current-week: rgba(224, 180, 90, 0.10);
-  --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
-  --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+/* Thème nuit — forcé (écran uniquement) */
+@media screen {
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0F1A1E;
+    --paper-deep: #0B1417;
+    --card: #16252A;
+    --card-alt: #1B2C31;
+    --track: #16252A;
+    --rail: #22333A;
+    --line: #2A3B40;
+    --line-soft: #22333A;
+    --line-strong: #93A3A5;
+    --ink: #EDE6D8;
+    --ink-soft: #BFC8C6;
+    --ink-muted: #93A3A5;
+    --ink-faint: #768689;
+    --inverse-bg: #EDE6D8;
+    --inverse-ink: #0F1A1E;
+    --petrol: #57A8AE;
+    --petrol-deep: #0E4550;
+    --on-petrol: #0B1417;
+    --on-petrol-deep: #EDE6D8;
+    --on-petrol-muted: #A9CFCB;
+    --petrol-tint: #173A40;
+    --petrol-tint-ink: #9ED6D4;
+    --link: #7CC4C6;
+    --link-hover: #A9DCDC;
+    --brass: #D9A23A;
+    --brass-bright: #E0B45A;
+    --brass-ink: #E3B45C;
+    --brass-tint: #3A2E16;
+    --brass-tint-ink: #F0C979;
+    --on-brass: #0F1A1E;
+    --wordmark-accent: #E0B45A;
+    --avatar-bg: #D9A23A;
+    --avatar-ink: #0F1A1E;
+    --sage: #A9CFC5;
+    --brick: #E0735C;
+    --brick-tint: #3A1E18;
+    --brick-tint-ink: #F2A08E;
+    --series-students: #3E8F99;
+    --series-teachers: #D9A23A;
+    --series-subsidy: #A9CFC5;
+    --series-expenses: #E0735C;
+    --att-present: #57A8AE;
+    --att-absent: #E0735C;
+    --att-cancelled: #8A9A9D;
+    --att-unrecorded: #55666A;
+    --att-current-week: rgba(224, 180, 90, 0.10);
+    --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+    --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+  }
 }
 
 body {

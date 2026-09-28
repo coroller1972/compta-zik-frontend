@@ -3955,6 +3955,10 @@ const app = createApp({
         <circle cx="10" cy="12" r="2" />
         <circle cx="18" cy="18" r="2" />
       </symbol>
+      <symbol id="icon-print" viewBox="0 0 24 24">
+        <path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+        <rect x="7" y="14" width="10" height="7" rx="1" />
+      </symbol>
       <symbol id="icon-check" viewBox="0 0 24 24">
         <path d="M5 12.5l4.5 4.5L19 7.5" />
       </symbol>
@@ -4563,7 +4567,10 @@ const app = createApp({
                 <h2>Feuilles d'émargement</h2>
                 <span>{{ selectedTerm.name }} {{ state.settings.year }} - une feuille par professeur</span>
               </div>
-              <button class="primary-button no-print" @click="printPage">Imprimer</button>
+              <button class="primary-button no-print" @click="printPage">
+                <svg aria-hidden="true"><use href="#icon-print"></use></svg>
+                Imprimer
+              </button>
             </div>
 
             <div v-if="signatureSheetSections.length" class="signature-stack">
@@ -4573,7 +4580,7 @@ const app = createApp({
                     <h3>{{ fullName(section.teacher) }}</h3>
                     <span>{{ section.teacher.instrument }}</span>
                   </div>
-                  <strong>{{ selectedTerm.name }} {{ state.settings.year }}</strong>
+                  <strong>{{ selectedTerm.name }} · {{ state.settings.year }}</strong>
                 </div>
                 <div class="signature-table-wrap">
                   <table class="signature-table">
@@ -4589,7 +4596,7 @@ const app = createApp({
                           <template v-else>
                             <span>{{ item.band.weekday || 'Groupe' }}</span>
                             <strong>{{ item.band.name }}</strong>
-                            <small>Groupe de travail</small>
+                            <small class="signature-kind">Atelier</small>
                           </template>
                         </th>
                       </tr>

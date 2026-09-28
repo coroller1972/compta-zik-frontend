@@ -219,6 +219,7 @@ Saisie rapide des présences d'une journée :
 - Mêmes rôles, mêmes noms de variables : seules les valeurs changent (voir `tokens.css`).
 - Par défaut, on suit le réglage du système. Un choix manuel **Clair / Nuit / Auto** dans l'écran Compte pose `data-theme` sur `<html>` et le mémorise en `localStorage`. L'appliquer au plus tôt (script en tête de `index.html`) pour éviter un flash de thème clair.
 - Les PDF générés (factures, demandes prestataire) restent toujours en version claire.
+- Le thème nuit est limité à l'écran (`@media screen` dans `tokens.css`) : l'impression (feuilles d'émargement…) utilise toujours les valeurs claires.
 
 ## 8. Propositions fonctionnelles vues dans les maquettes
 
