@@ -58,6 +58,8 @@
   --brass-tint-ink: #6B4806;
   --on-brass: #FFFCF6;
   --wordmark-accent: #A8760F; /* « Zik » du logotype */
+  --avatar-bg: #13262C;       /* avatar à initiales de la boîte utilisateur */
+  --avatar-ink: #F5E7C8;
 
   /* Sauge — subvention */
   --sage: #8DB5AE;
@@ -142,6 +144,8 @@
     --brass-tint-ink: #F0C979;
     --on-brass: #0F1A1E;
     --wordmark-accent: #E0B45A;
+    --avatar-bg: #D9A23A;
+    --avatar-ink: #0F1A1E;
     --sage: #A9CFC5;
     --brick: #E0735C;
     --brick-tint: #3A1E18;
@@ -192,6 +196,8 @@
   --brass-tint-ink: #F0C979;
   --on-brass: #0F1A1E;
   --wordmark-accent: #E0B45A;
+  --avatar-bg: #D9A23A;
+  --avatar-ink: #0F1A1E;
   --sage: #A9CFC5;
   --brick: #E0735C;
   --brick-tint: #3A1E18;

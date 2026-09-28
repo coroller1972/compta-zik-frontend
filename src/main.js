@@ -968,6 +968,32 @@ const app = createApp({
     const canCreateUsers = computed(() => can("ACCOUNT_CREATE"));
     const canAdminUsers = computed(() => can("ACCOUNT_MANAGE"));
     const canAccessSettings = computed(() => canAny(CONFIG_PERMISSIONS));
+    const navGroups = computed(() => {
+      if (mustChangePassword.value) return [];
+      return [
+        { label: "Saison", items: [
+          { view: "dashboard", label: "Tableau de bord", visible: true },
+          { view: "attendance", label: "Présences", visible: can("PRESENCE_READ") },
+          { view: "signatures", label: "Émargement", visible: can("PRESENCE_READ") },
+        ] },
+        { label: "Répertoire", items: [
+          { view: "people", label: "Musiciens", visible: canAny(["MUSICIENS_READ", "MUSICIENS_WRITE", "MUSICIENS_ARCHIVED"]) },
+          { view: "slots", label: "Créneaux", visible: canAny(["MUSICIENS_READ", "MUSICIENS_WRITE"]) },
+          { view: "groups", label: "Groupes", visible: canAny(["GROUPS_READ", "GROUPS_WRITE"]) },
+        ] },
+        { label: "Comptes", items: [
+          { view: "expenses", label: "Dépenses", visible: canAny(["EXPENSES_READ", "EXPENSES_WRITE", "EXPENSES_DELETE"]) },
+          { view: "billing", label: "Facturation", visible: canAny(["BILLING_READ", "BILLING_PRINT"]) },
+        ] },
+        { label: "Système", items: [
+          { view: "data-transfer", label: "Import / Export", visible: can("IMPORT_EXPORT") },
+          { view: "settings", label: "Configuration", visible: canAccessSettings.value },
+        ] },
+      ]
+        .map((group) => ({ ...group, items: group.items.filter((item) => item.visible) }))
+        .filter((group) => group.items.length);
+    });
+    const seasonPickerOpen = ref(false);
     const visibleAuthRoles = computed(() => {
       const rows = authRoles.value.length
         ? authRoles.value
@@ -2096,6 +2122,16 @@ const app = createApp({
     function openBilling(tab = billingTab.value) {
       billingTab.value = tab;
       activeView.value = "billing";
+    }
+
+    function openNavView(view) {
+      if (view === "billing") openBilling();
+      else activeView.value = view;
+    }
+
+    async function switchSeason() {
+      seasonPickerOpen.value = false;
+      await loadFromApi();
     }
 
     function normalizeAuthRoleSelection(roles) {
@@ -3382,6 +3418,10 @@ const app = createApp({
       dashboardDateLabel,
       yearStatus,
       yearStatusLabel,
+      navGroups,
+      seasonPickerOpen,
+      openNavView,
+      switchSeason,
       structureLocked,
       yearClosed,
       isFirstTerm,
@@ -3920,47 +3960,118 @@ const app = createApp({
           <path d="M22 8l-5 5" />
         </symbol>
         <symbol id="icon-log-out" viewBox="0 0 24 24">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-          <path d="M16 17l5-5-5-5" />
-          <path d="M21 12H9" />
+          <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />
+        </symbol>
+        <symbol id="icon-note" viewBox="0 0 24 24">
+          <path d="M9 18V5l10-2v12" />
+          <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
+          <circle cx="16.5" cy="15" r="2.5" fill="currentColor" />
+        </symbol>
+        <symbol id="icon-chevron-down" viewBox="0 0 24 24">
+          <path d="M7 10l5 5 5-5" />
+        </symbol>
+        <symbol id="icon-nav-dashboard" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="7" height="9" rx="1.5" />
+          <rect x="14" y="3" width="7" height="5" rx="1.5" />
+          <rect x="14" y="12" width="7" height="9" rx="1.5" />
+          <rect x="3" y="16" width="7" height="5" rx="1.5" />
+        </symbol>
+        <symbol id="icon-nav-attendance" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="17" rx="2" />
+          <path d="M3 9h18M8 2v4M16 2v4M8.5 15l2.5 2.5 4.5-5" />
+        </symbol>
+        <symbol id="icon-nav-signatures" viewBox="0 0 24 24">
+          <path d="M4 21h16M6 17l10-10 3 3-10 10H6v-3z" />
+        </symbol>
+        <symbol id="icon-nav-people" viewBox="0 0 24 24">
+          <circle cx="9" cy="8" r="3.5" />
+          <path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M18 14.8c2 .7 3.2 2.5 3.5 5.2" />
+        </symbol>
+        <symbol id="icon-nav-slots" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </symbol>
+        <symbol id="icon-nav-groups" viewBox="0 0 24 24">
+          <path d="M9 18V5l11-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="17" cy="16" r="3" />
+        </symbol>
+        <symbol id="icon-nav-expenses" viewBox="0 0 24 24">
+          <path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z" />
+          <path d="M9 7h6M9 11h6M9 15h4" />
+        </symbol>
+        <symbol id="icon-nav-billing" viewBox="0 0 24 24">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+          <path d="M14 2v6h6M8 13h8M8 17h5" />
+        </symbol>
+        <symbol id="icon-nav-data-transfer" viewBox="0 0 24 24">
+          <path d="M7 9l5-5 5 5M12 4v11M5 20h14" />
+        </symbol>
+        <symbol id="icon-nav-settings" viewBox="0 0 24 24">
+          <path d="M4 6h10M4 12h4M12 12h8M4 18h12" />
+          <circle cx="17" cy="6" r="2" />
+          <circle cx="10" cy="12" r="2" />
+          <circle cx="18" cy="18" r="2" />
         </symbol>
       </svg>
       <aside class="sidebar">
-        <div class="brand">
-          <img class="brand-mark" src="/src/assets/logo.png" alt="" aria-hidden="true" />
-          <div>
-            <strong>Compta Zik</strong>
-            <small>{{ state.settings.year }}</small>
-          </div>
+        <div class="sidebar-brand">
+          <span class="sidebar-mark" aria-hidden="true"><svg><use href="#icon-note"></use></svg></span>
+          <span class="wordmark">Compta <em>Zik</em></span>
         </div>
-        <nav class="nav">
-          <button v-if="!mustChangePassword" :class="{ active: activeView === 'dashboard' }" @click="activeView = 'dashboard'">Tableau de bord</button>
-          <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'attendance' }" @click="activeView = 'attendance'">Présences</button>
-          <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'signatures' }" @click="activeView = 'signatures'">Émargement</button>
-          <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE', 'MUSICIENS_ARCHIVED'])" :class="{ active: activeView === 'people' }" @click="activeView = 'people'">Musiciens</button>
-          <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" :class="{ active: activeView === 'slots' }" @click="activeView = 'slots'">Créneaux</button>
-          <button v-if="!mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" :class="{ active: activeView === 'groups' }" @click="activeView = 'groups'">Groupes</button>
-          <button v-if="!mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" :class="{ active: activeView === 'expenses' }" @click="activeView = 'expenses'">Dépenses</button>
-          <button v-if="!mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" :class="{ active: activeView === 'billing' }" @click="openBilling()">Facturation</button>
-          <button v-if="!mustChangePassword && can('IMPORT_EXPORT')" :class="{ active: activeView === 'data-transfer' }" @click="activeView = 'data-transfer'">Import / Export</button>
-          <button v-if="canUseAccount" :class="{ active: activeView === 'account' }" @click="openAccountView">Compte</button>
-          <button v-if="!mustChangePassword && canAccessSettings" :class="{ active: activeView === 'settings' }" @click="activeView = 'settings'">Configuration</button>
+        <div v-if="!mustChangePassword" class="season-picker" @keydown.esc="seasonPickerOpen = false">
+          <button type="button" class="season-button" :aria-expanded="seasonPickerOpen ? 'true' : 'false'" aria-controls="season-panel" @click="seasonPickerOpen = !seasonPickerOpen">
+            <span class="season-copy"><small>Saison</small><strong>{{ state.settings.year }}</strong></span>
+            <span class="season-meta">
+              <span :class="['year-pill', yearStatus.toLowerCase()]">{{ yearStatusLabel }}</span>
+              <svg aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+            </span>
+          </button>
+          <form v-if="seasonPickerOpen" id="season-panel" class="season-panel" @submit.prevent="switchSeason">
+            <label>Changer de saison
+              <input type="number" v-model.number="accountingYearInput" min="2000" max="2100" />
+            </label>
+            <button type="submit" class="primary-button">Charger</button>
+          </form>
+        </div>
+        <nav class="nav" aria-label="Navigation principale">
+          <div v-for="group in navGroups" :key="group.label" class="nav-group">
+            <span class="nav-group-label">{{ group.label }}</span>
+            <button
+              v-for="item in group.items"
+              :key="item.view"
+              type="button"
+              :class="{ active: activeView === item.view }"
+              :aria-current="activeView === item.view ? 'page' : null"
+              @click="openNavView(item.view)"
+            >
+              <svg aria-hidden="true"><use :href="'#icon-nav-' + item.view"></use></svg>
+              {{ item.label }}
+            </button>
+          </div>
         </nav>
-        <div class="api-box">
-          <div class="user-box">
-            <div class="user-avatar-wrap">
+        <div class="user-box">
+          <component
+            :is="canUseAccount ? 'button' : 'div'"
+            :type="canUseAccount ? 'button' : null"
+            :class="['user-identity', { active: activeView === 'account' }]"
+            :aria-current="activeView === 'account' ? 'page' : null"
+            :title="canUseAccount ? 'Mon compte' : null"
+            @click="canUseAccount && openAccountView()"
+          >
+            <span class="user-avatar-wrap">
               <img v-if="currentUserAvatarUrl" class="user-avatar image" :src="currentUserAvatarUrl" alt="" />
               <span v-else class="user-avatar" aria-hidden="true">{{ currentUserInitials }}</span>
               <span :class="['status', 'avatar-status', apiStatus === 'connecté' ? 'ok' : 'demo']"></span>
-            </div>
-            <div class="user-copy">
-              <span>{{ currentUserLabel }}</span>
+            </span>
+            <span class="user-copy">
+              <strong>{{ currentUserLabel }}</strong>
               <small v-if="currentUserDetail">{{ currentUserDetail }}</small>
-            </div>
-            <button class="sidebar-icon-button" @click="logout" aria-label="Déconnexion" title="Déconnexion">
-              <svg aria-hidden="true"><use href="#icon-log-out"></use></svg>
-            </button>
-          </div>
+            </span>
+          </component>
+          <button type="button" class="sidebar-icon-button" @click="logout" aria-label="Se déconnecter" title="Se déconnecter">
+            <svg aria-hidden="true"><use href="#icon-log-out"></use></svg>
+          </button>
         </div>
       </aside>
 

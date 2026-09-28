@@ -178,7 +178,7 @@ Icônes linéaires, trait 2 px, 18 px dans la navigation. On peut conserver Phos
 
 Fond `--paper-deep`, bordure droite `--line`, padding 24 × 16. De haut en bas :
 1. Logotype.
-2. Sélecteur de saison : carte `--card` 52 px avec « SAISON / 2026 », la pastille de statut d'année et un chevron.
+2. Sélecteur de saison : carte `--card` 52 px avec « SAISON / 2026 », la pastille de statut d'année et un chevron. Il ouvre un menu (`--shadow-overlay`) où l'on saisit l'année à charger : l'API ne liste pas les années existantes.
 3. Navigation en quatre groupes titrés :
    - **Saison** : Tableau de bord, Présences, Émargement
    - **Répertoire** : Musiciens, Créneaux, Groupes
@@ -186,7 +186,7 @@ Fond `--paper-deep`, bordure droite `--line`, padding 24 × 16. De haut en bas :
    - **Système** : Import / Export, Configuration
    (Compte est accessible depuis la boîte utilisateur.) Les permissions existantes continuent de masquer les entrées.
 4. Item actif : fond `--card`, bordure intérieure `--line`, texte `--ink` 700, icône `--petrol`. Items inactifs : `--ink-soft` 600.
-5. En bas : boîte utilisateur (avatar rond 38 px, nom, rôle, bouton de déconnexion 44 px avec `aria-label`).
+5. En bas : boîte utilisateur (avatar rond 38 px `--avatar-bg` / `--avatar-ink`, nom, rôle, bouton de déconnexion 44 px avec `aria-label`). Avatar et nom forment un bouton qui ouvre l'écran Compte.
 
 ### Tableau de bord
 
