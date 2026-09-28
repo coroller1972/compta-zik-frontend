@@ -5100,10 +5100,11 @@ const app = createApp({
                     <td class="num">{{ billingMoney(row.groupFee) }}</td>
                     <td class="num">{{ billingMoney(row.totalDue) }}</td>
                     <td>
-                      <a v-if="documentForMusician(row.musician.id)?.fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForMusician(row.musician.id))">
-                        PDF · {{ documentStatusLabel(documentForMusician(row.musician.id).status) }}
-                      </a>
-                      <span v-else-if="documentForMusician(row.musician.id)" class="muted">Brouillon à régénérer</span>
+                      <span v-if="documentForMusician(row.musician.id)" class="document-cell">
+                        <span :class="['doc-pill', documentForMusician(row.musician.id).status.toLowerCase()]">{{ documentStatusLabel(documentForMusician(row.musician.id).status) }}</span>
+                        <a v-if="documentForMusician(row.musician.id).fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForMusician(row.musician.id))">PDF</a>
+                        <span v-else class="muted">à régénérer</span>
+                      </span>
                       <span v-else class="muted">Non généré</span>
                       <div v-if="documentForMusician(row.musician.id) && can('BILLING_PRINT')" class="document-row-actions">
                         <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="markDocumentSent(documentForMusician(row.musician.id))" :disabled="markingStudentInvoicesSent">Marquer envoyé</button>
@@ -5193,7 +5194,8 @@ const app = createApp({
                 <div v-if="finalizedDocumentsForTeacher(section.teacher.id).length" class="installment-history">
                   <strong>Historique des situations</strong>
                   <div v-for="document in finalizedDocumentsForTeacher(section.teacher.id)" :key="document.id" class="installment-row">
-                    <span>Situation n°{{ document.installmentNumber || 'historique' }} · S{{ document.periodStartWeek || selectedTerm.startWeek }}–S{{ document.periodEndWeek || selectedTerm.endWeek }} · {{ documentStatusLabel(document.status) }}</span>
+                    <span>Situation n°{{ document.installmentNumber || 'historique' }} · S{{ document.periodStartWeek || selectedTerm.startWeek }}–S{{ document.periodEndWeek || selectedTerm.endWeek }}</span>
+                    <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span>
                     <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">{{ document.documentNumber }}</a>
                     <div v-if="can('BILLING_PRINT')" class="document-row-actions">
                       <button v-if="document.status === 'GENERATED'" @click="markDocumentSent(document)">Marquer envoyé</button>
@@ -5209,7 +5211,7 @@ const app = createApp({
             <div class="panel-head"><div><h2>Historique des corrections</h2><span>Les originaux et avoirs restent consultables</span></div></div>
             <div class="document-history-list">
               <article v-for="document in documentHistory" :key="document.id">
-                <div><strong>{{ document.documentNumber }}</strong><span>{{ documentStatusLabel(document.status) }} · {{ document.correctionReason }}</span></div>
+                <div><strong>{{ document.documentNumber }} <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span></strong><span>{{ document.correctionReason }}</span></div>
                 <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">PDF</a>
               </article>
             </div>
