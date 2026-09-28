@@ -4077,7 +4077,9 @@ td strong {
 
 .session-time {
   display: inline-block;
-  width: 64px;
+  width: 72px;
+  margin-right: 12px;
+  white-space: nowrap;
   color: var(--ink-muted);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -4087,7 +4089,7 @@ td strong {
 .session-copy {
   display: inline-flex;
   flex-direction: column;
-  max-width: calc(100% - 76px);
+  max-width: calc(100% - 84px);
   vertical-align: middle;
 }
 
@@ -4248,6 +4250,7 @@ td strong {
   .session-time {
     display: block;
     width: auto;
+    margin: 0 0 2px;
   }
 
   .session-copy {
