@@ -35,7 +35,7 @@
   --ink: #13262C;            /* texte principal */
   --ink-soft: #3A4B50;       /* texte secondaire fort, éléments de navigation */
   --ink-muted: #56676C;      /* libellés, sous-titres */
-  --ink-faint: #7B8A8E;      /* libellés de groupe, axes (≥ 11 px, gras) */
+  --ink-faint: #5A6A6E;      /* en-têtes de tableau, libellés de groupe, axes (≥ 4,5:1 sur --paper-deep) */
 
   /* Inversé (élément sélectionné d'un contrôle segmenté, toast) */
   --inverse-bg: #13262C;
@@ -58,7 +58,7 @@
   --brass-ink: #7E5608;      /* texte laiton sur fond clair */
   --brass-tint: #F5E7C8;
   --brass-tint-ink: #6B4806;
-  --on-brass: #FFFCF6;
+  --on-brass: #13262C;       /* texte sur --brass plein (le blanc n'atteint pas 4,5:1) */
   --wordmark-accent: #A8760F; /* « Zik » du logotype */
   --avatar-bg: #13262C;       /* avatar à initiales de la boîte utilisateur */
   --avatar-ink: #F5E7C8;
@@ -130,7 +130,7 @@
     --ink: #EDE6D8;
     --ink-soft: #BFC8C6;
     --ink-muted: #93A3A5;
-    --ink-faint: #768689;
+    --ink-faint: #8A9A9D;
     --inverse-bg: #EDE6D8;
     --inverse-ink: #0F1A1E;
     --petrol: #57A8AE;
@@ -185,7 +185,7 @@
     --ink: #EDE6D8;
     --ink-soft: #BFC8C6;
     --ink-muted: #93A3A5;
-    --ink-faint: #768689;
+    --ink-faint: #8A9A9D;
     --inverse-bg: #EDE6D8;
     --inverse-ink: #0F1A1E;
     --petrol: #57A8AE;

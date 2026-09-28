@@ -2,6 +2,7 @@ import { createApp, computed, nextTick, reactive, ref, watch } from "./vendor/vu
 import qrcode from "./vendor/qrcode-generator.min.mjs";
 import { createSessionTransport } from "./session-transport.mjs";
 import { AvatarCropDialog } from "./avatar-crop-dialog.mjs";
+import { THEME_CHOICES, THEME_STORAGE_KEY, applyThemePreference, normalizeTheme, readThemePreference, saveThemePreference } from "./theme.mjs";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -1148,6 +1149,18 @@ const app = createApp({
         .filter((group) => group.items.length);
     });
     const seasonPickerOpen = ref(false);
+    const themePreference = ref(applyThemePreference(readThemePreference()));
+
+    function setThemePreference(value) {
+      themePreference.value = saveThemePreference(value);
+    }
+
+    // Garde les onglets ouverts d'accord lorsque le thème change ailleurs.
+    window.addEventListener("storage", (event) => {
+      if (event.key === THEME_STORAGE_KEY || event.key === null) {
+        themePreference.value = applyThemePreference(normalizeTheme(event.newValue));
+      }
+    });
     const visibleAuthRoles = computed(() => {
       const rows = authRoles.value.length
         ? authRoles.value
@@ -3578,6 +3591,9 @@ const app = createApp({
       attendanceCellLabel,
       attendanceCellTitle,
       seasonPickerOpen,
+      themePreference,
+      setThemePreference,
+      THEME_CHOICES,
       openNavView,
       switchSeason,
       structureLocked,
@@ -5363,6 +5379,24 @@ const app = createApp({
               <button class="ghost-button danger-button" @click="deleteAvatar" :disabled="!currentUser?.avatar" :title="currentUser?.avatar ? '' : 'Aucun avatar enregistré à supprimer.'">Supprimer l'avatar</button>
             </div>
             <p class="form-help" :class="{ ready: avatarFile }">{{ avatarFile ? 'Cliquez sur « Changer l’avatar » pour recadrer la photo avant de l’envoyer.' : 'Choisissez une image PNG, JPEG ou WebP (10 Mo maximum).' }}</p>
+          </section>
+
+          <section v-if="!mustChangePassword" class="panel appearance-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Apparence</h2>
+                <span>Auto suit le réglage clair ou sombre du système · choix mémorisé sur cet appareil</span>
+              </div>
+              <div class="segmented" role="group" aria-label="Thème de l’interface">
+                <button
+                  v-for="choice in THEME_CHOICES"
+                  :key="choice.value"
+                  type="button"
+                  :aria-pressed="themePreference === choice.value ? 'true' : 'false'"
+                  @click="setThemePreference(choice.value)"
+                >{{ choice.label }}</button>
+              </div>
+            </div>
           </section>
 
           <section v-if="can('ACCOUNT_USER') && !mustChangePassword" class="panel security-panel">

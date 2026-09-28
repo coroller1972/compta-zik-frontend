@@ -53,6 +53,7 @@ Règles :
 - **Sauge** = réservée à la subvention dans les graphiques.
 - En nuit, le texte posé sur un fond pétrole ou laiton plein devient **sombre** (`--on-petrol`, `--on-brass`).
 - Contraste minimum 4,5:1 pour le texte (3:1 au-delà de 24 px). Les couleurs à distinguer diffèrent aussi en luminosité, pas seulement en teinte.
+- Ajustements après audit de contraste (étape 7) : `--ink-faint` foncé (clair `#5A6A6E`, nuit `#8A9A9D`) car les valeurs des maquettes (`#7B8A8E` / `#768689`) restaient sous 4,5:1 pour les en-têtes de tableau et libellés de navigation ; en clair, `--on-brass` devient sombre (`#13262C`) : le blanc sur `--brass` (en-tête de la semaine courante) n'atteignait que 3:1.
 
 ## 3. Typographie
 
