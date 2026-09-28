@@ -804,7 +804,7 @@ const app = createApp({
     ));
 
     const dashboardDonutStyle = computed(() => ({
-      background: `conic-gradient(#123f49 0 ${dashboardSubsidyShare.value}%, #e98222 ${dashboardSubsidyShare.value}% 100%)`,
+      background: `conic-gradient(var(--series-subsidy) 0 ${dashboardSubsidyShare.value}%, var(--series-expenses) ${dashboardSubsidyShare.value}% 100%)`,
     }));
 
     const dashboardTeacherActivity = computed(() => (
