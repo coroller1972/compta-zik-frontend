@@ -1023,7 +1023,7 @@ const app = createApp({
       if (mustChangePassword.value) return "Nouveau mot de passe";
       if (mustEnrollMfa.value) return "Sécuriser le compte";
       if (mfaChallenge.active) return "Validation en deux étapes";
-      return "Compta Zik";
+      return "Connexion";
     });
     const mfaSetupCode = computed(() => mfaSetupDigits.value.join(""));
     const mfaSetupCodeComplete = computed(() => /^\d{6}$/.test(mfaSetupCode.value));
@@ -3988,7 +3988,10 @@ const app = createApp({
     <main v-if="authGateActive" class="login-shell">
       <section class="login-panel" :class="{ 'password-change-panel': mustChangePassword, 'mfa-panel': mustEnrollMfa || mfaChallenge.active }" aria-labelledby="login-title">
         <div class="login-brand">
-          <img class="brand-mark" src="/src/assets/logo.png" alt="" aria-hidden="true" />
+          <div class="sidebar-brand">
+            <span class="sidebar-mark" aria-hidden="true"><svg><use href="#icon-note"></use></svg></span>
+            <span class="wordmark">Compta <em>Zik</em></span>
+          </div>
           <div>
             <p class="eyebrow">Comptabilité activité musique</p>
             <h1 id="login-title">{{ authGateTitle }}</h1>
