@@ -1815,7 +1815,7 @@ td small {
   gap: 8px;
   min-height: 96px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 10px;
   background: var(--card);
 }
@@ -1835,26 +1835,52 @@ td small {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: 38px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--accent-soft);
-  padding: 8px 10px;
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--petrol-tint);
+  color: var(--petrol-tint-ink);
+  padding: 4px 4px 4px 12px;
+  font-weight: 600;
 }
 
 .bucket-item button {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: 0;
-  border-radius: 999px;
-  background: var(--card);
-  color: var(--danger);
-  font-weight: 800;
+  border-radius: 50%;
+  background: transparent;
+  color: currentColor;
+}
+
+.bucket-item button:hover:not(:disabled) {
+  background: var(--brick-tint);
+  color: var(--brick-tint-ink);
+}
+
+.bucket-item button:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: 1px;
+}
+
+.bucket-item button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
 }
 
 .bucket-item.holiday-item {
-  border-color: var(--line);
-  background: var(--hatch);
+  border: 1px solid var(--line);
+  background-color: var(--card);
+  background-image: var(--hatch);
+  color: var(--ink);
 }
 
 .empty-state {
@@ -1953,29 +1979,43 @@ td small {
 }
 
 .slot-planning tbody th {
-  background: var(--card-alt);
-  font-weight: 800;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 .slot-planning td {
-  height: 74px;
-  vertical-align: top;
-  background: var(--card-alt);
+  height: 64px;
+  border-left: 1px solid var(--line-soft);
+  background: var(--card);
 }
 
 .slot-planning td.occupied {
-  background: var(--accent-soft);
+  background: var(--petrol-tint);
+  box-shadow: inset 3px 0 0 var(--petrol);
 }
 
 .slot-planning td strong,
-.slot-planning td small,
-.slot-planning td span {
+.slot-planning td small {
   display: block;
 }
 
-.slot-planning td small,
-.slot-planning td span {
-  color: var(--muted);
+.slot-planning td strong {
+  color: var(--petrol-tint-ink);
+  font-size: 14px;
+}
+
+.slot-planning td small {
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.slot-free {
+  color: var(--ink-faint);
+  font-size: 13px;
 }
 
 /* Émargement — DA « Partition » (feuilles imprimables ; l'impression reste en clair) */
@@ -2157,17 +2197,32 @@ td small {
 }
 
 .group-picker button {
+  min-height: var(--control-height);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--card);
   color: var(--ink);
-  padding: 12px;
+  padding: 12px 14px;
   text-align: left;
 }
 
+.group-picker button:hover:not(.active) {
+  background: var(--card-alt);
+}
+
+.group-picker button:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: 2px;
+}
+
 .group-picker button.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--petrol);
+  background: var(--petrol-tint);
+  color: var(--petrol-tint-ink);
+}
+
+.group-picker button.active span {
+  color: var(--petrol-tint-ink);
 }
 
 .group-picker strong,
@@ -2196,7 +2251,7 @@ td small {
   max-height: 380px;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 10px;
   background: var(--card);
 }

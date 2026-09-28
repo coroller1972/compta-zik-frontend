@@ -4640,10 +4640,11 @@ const app = createApp({
                   <tr v-for="row in scheduleRows" :key="row.slot">
                     <th scope="row">{{ row.slot }}</th>
                     <td v-for="slot in row.days" :key="slot.key" :class="{ occupied: slot.courses.length }">
-                      <strong v-if="slot.musicians.length">{{ slot.musicians.map(fullName).join(', ') }}</strong>
-                      <span v-else class="muted">Libre</span>
-                      <small v-if="slot.teachers.length">{{ slot.teachers.map(fullName).join(', ') }}{{ slot.sharedSlot ? ' - partagé' : '' }}</small>
-                      <small v-else>Salle libre</small>
+                      <template v-if="slot.courses.length">
+                        <strong>{{ slot.musicians.map(fullName).join(', ') }}</strong>
+                        <small>{{ slot.teachers.map(fullName).join(', ') }}{{ slot.sharedSlot ? ' · partagé' : '' }}</small>
+                      </template>
+                      <span v-else class="slot-free">Libre</span>
                     </td>
                   </tr>
                 </tbody>
@@ -4692,7 +4693,7 @@ const app = createApp({
                   <div class="bucket-list">
                     <article v-for="band in musicianSelectedBands" :key="band.id" class="bucket-item">
                       <span>{{ band.name }}</span>
-                      <button @click="removeMusicianBand(band.id)" :aria-label="'Retirer ' + band.name">x</button>
+                      <button @click="removeMusicianBand(band.id)" :aria-label="'Retirer ' + band.name"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
                     </article>
                     <p v-if="!musicianSelectedBands.length" class="empty-state">Aucun groupe musical</p>
                   </div>
@@ -4902,7 +4903,7 @@ const app = createApp({
                     <div class="bucket-list tall">
                       <article v-for="musician in selectedGroupMembers" :key="musician.id" class="bucket-item">
                         <span>{{ fullName(musician) }}</span>
-                        <button v-if="can('GROUPS_WRITE')" @click="removeGroupMember(musician.id)" :aria-label="'Retirer ' + fullName(musician)">x</button>
+                        <button v-if="can('GROUPS_WRITE')" @click="removeGroupMember(musician.id)" :aria-label="'Retirer ' + fullName(musician)"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
                       </article>
                       <p v-if="!selectedGroupMembers.length" class="empty-state">Aucun membre sélectionné</p>
                     </div>
@@ -5886,7 +5887,7 @@ const app = createApp({
                 <div class="bucket-list holiday-bucket">
                   <article v-for="week in selectedHolidayWeeks" :key="week" class="bucket-item holiday-item">
                     <span>Semaine {{ week }}</span>
-                    <button @click="removeHolidayWeek(week)" :aria-label="'Retirer la semaine ' + week">x</button>
+                    <button @click="removeHolidayWeek(week)" :aria-label="'Retirer la semaine ' + week"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
                   </article>
                   <p v-if="!selectedHolidayWeeks.length" class="empty-state">Aucune semaine de vacances</p>
                 </div>
