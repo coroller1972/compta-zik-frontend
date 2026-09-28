@@ -881,143 +881,10 @@ td small {
   margin-top: 3px;
 }
 
-.attendance-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
-  gap: 8px;
-}
-
-.attendance-strip button {
-  min-height: 72px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--muted);
-  display: grid;
-  place-items: center;
-  gap: 4px;
-}
-
-.attendance-strip button.present {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.attendance-strip strong {
-  font-size: 22px;
-}
-
 .attendance-table-wrap {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
-}
-
-.attendance-table {
-  min-width: 980px;
-}
-
-.attendance-table th,
-.attendance-table td {
-  padding: 8px;
-  background: var(--card);
-}
-
-.attendance-table .sticky-col {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  box-shadow: 1px 0 0 var(--line);
-}
-
-.attendance-table .wide {
-  min-width: 190px;
-}
-
-.week-head {
-  width: 42px;
-  text-align: center;
-}
-
-.week-head.holiday {
-  background: var(--track);
-  color: var(--ink-muted);
-}
-
-.presence-cell {
-  width: 42px;
-  padding: 5px;
-  text-align: center;
-}
-
-.presence-cell.holiday {
-  background: var(--hatch);
-}
-
-.presence-cell button {
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--card);
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.presence-cell button.present {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-petrol);
-}
-
-.session-date-label {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.attendance-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 18px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.attendance-toolbar {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--card);
-  box-shadow: none;
-}
-
-.attendance-teacher-filter {
-  display: grid;
-  min-width: min(280px, 100%);
-  gap: 6px;
-}
-
-.attendance-teacher-filter span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.attendance-teacher-filter select {
-  min-height: 42px;
 }
 
 .archived-musicians-panel {
@@ -1027,57 +894,6 @@ td small {
 
 .action-button.restore {
   color: var(--petrol);
-}
-
-@media (max-width: 760px) {
-  .attendance-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-}
-
-.attendance-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.legend-dot {
-  display: inline-grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--card);
-  font-style: normal;
-}
-
-.legend-dot.present { background: var(--accent); border-color: var(--accent); color: var(--on-petrol); }
-.legend-dot.absent { background: var(--brick-tint); color: var(--brick-tint-ink); }
-.legend-dot.cancelled { background: var(--track); border-color: var(--att-cancelled); color: var(--ink-muted); }
-
-.presence-cell button.attendance-state.absent {
-  border-color: var(--att-absent);
-  background: var(--brick-tint);
-  color: var(--brick-tint-ink);
-}
-
-.presence-cell button.attendance-state.cancelled {
-  border-color: var(--att-cancelled);
-  background: var(--track);
-  color: var(--ink-muted);
-}
-
-.presence-cell.holiday button {
-  border-color: var(--line);
-  background: var(--card);
-}
-
-.presence-cell.holiday button.present {
-  border-color: var(--att-present);
-  background: var(--att-present);
-  color: var(--on-petrol);
 }
 
 .search {
@@ -1202,7 +1018,6 @@ td small {
 .teacher-financial-metrics .remaining strong { color: var(--brass-ink); }
 .installment-history, .pending-adjustments { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; }
 .installment-row, .pending-adjustments > div { align-items: center; display: flex; gap: .8rem; justify-content: space-between; padding: .55rem 0; }
-.attendance-state:disabled.present { background: var(--petrol); color: var(--on-petrol); cursor: not-allowed; opacity: .86; }
 
 .document-actions {
   display: flex;
@@ -2928,22 +2743,6 @@ input:focus {
   color: var(--action);
 }
 
-.presence-cell button {
-  color: var(--action);
-}
-
-.presence-cell button.present {
-  border-color: var(--action);
-  background: var(--action);
-  color: var(--on-petrol);
-}
-
-.attendance-strip button.present {
-  border-color: var(--action);
-  background: var(--action-soft);
-  color: var(--action);
-}
-
 .primary-button.billing-review-button {
   min-height: var(--control-height-lg);
   display: inline-flex;
@@ -3139,6 +2938,8 @@ td strong {
   position: absolute;
   width: 1px;
   height: 1px;
+  margin: -1px;
+  padding: 0;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
@@ -3830,6 +3631,412 @@ td strong {
   .provider-table td[data-label="Avancement"],
   .provider-table td.action {
     grid-column: 1 / -1;
+  }
+}
+
+/* Grille de présences — DA « Partition » (partition.md §5 « Symboles de présence » et §6) */
+.save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.save-indicator::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--petrol);
+}
+
+.save-indicator.saving::before {
+  background: var(--brass-bright);
+}
+
+.attendance-view {
+  gap: 20px;
+}
+
+.attendance-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
+}
+
+.attendance-teacher-filter select {
+  min-width: 220px;
+}
+
+.attendance-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 22px;
+  margin: 0;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  list-style: none;
+}
+
+.attendance-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-hatch {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  background-image: var(--hatch);
+}
+
+.attendance-hint {
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.att-glyph {
+  display: block;
+  flex: none;
+}
+
+.att-glyph.present {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--att-present);
+}
+
+.att-glyph.absent {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--att-absent);
+  border-radius: 50%;
+}
+
+.att-glyph.cancelled {
+  width: 14px;
+  height: 2px;
+  background: var(--att-cancelled);
+  transform: rotate(-45deg);
+}
+
+.att-glyph.unrecorded {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--att-unrecorded);
+}
+
+.att-lock {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.attendance-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+
+.attendance-scroll {
+  position: relative;
+  overflow-x: auto;
+}
+
+.attendance-grid {
+  width: 100%;
+  min-width: calc(250px + var(--weeks) * 36px + 96px);
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 14px;
+}
+
+.attendance-grid .col-session {
+  width: 250px;
+}
+
+.attendance-grid .col-total {
+  width: 96px;
+}
+
+.attendance-grid th,
+.attendance-grid td {
+  padding: 0;
+  background: transparent;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.attendance-grid thead th {
+  border-bottom: 1.5px solid var(--line-strong);
+  background: var(--card);
+}
+
+.attendance-grid .session-head,
+.attendance-grid .total-head {
+  padding: 12px 16px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.attendance-grid .total-head {
+  text-align: right;
+}
+
+.attendance-grid .week-head {
+  height: 40px;
+  border-left: 1px solid var(--line-soft);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: center;
+}
+
+.attendance-grid .week-head.holiday {
+  background-image: var(--hatch);
+  color: var(--ink-faint);
+}
+
+.attendance-grid .week-head.current {
+  background: var(--brass);
+  color: var(--on-brass);
+  font-weight: 500;
+}
+
+.attendance-group-row th {
+  padding: 12px 16px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card-alt);
+  text-align: left;
+}
+
+.attendance-group-row strong {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 400;
+}
+
+.attendance-group-row span {
+  margin-left: 10px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.attendance-row > * {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.attendance-grid .session-cell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  height: 48px;
+  padding: 0 16px;
+  background: var(--card);
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.session-time {
+  display: inline-block;
+  width: 64px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.session-copy {
+  display: inline-flex;
+  flex-direction: column;
+  max-width: calc(100% - 76px);
+  vertical-align: middle;
+}
+
+.session-copy strong {
+  font-size: 14px;
+}
+
+.session-copy strong,
+.session-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-copy span {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.att-cell {
+  border-left: 1px solid var(--line-soft);
+}
+
+.att-cell.holiday {
+  background-image: var(--hatch);
+}
+
+.att-cell.current {
+  background-color: var(--att-current-week);
+}
+
+.att-button {
+  position: relative;
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.att-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--petrol) 8%, transparent);
+}
+
+.att-button:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: -2px;
+}
+
+.att-button:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.att-button.saving {
+  cursor: progress;
+}
+
+.att-button.saving .att-glyph {
+  opacity: 0.45;
+}
+
+.att-button .att-lock {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+}
+
+.attendance-grid .total-cell {
+  padding: 0 16px;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.total-cell strong,
+.total-cell span {
+  display: block;
+}
+
+.total-cell span {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.attendance-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--card-alt);
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.attendance-footer strong {
+  color: var(--ink);
+}
+
+.attendance-total strong {
+  margin-left: 8px;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.attendance-empty {
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  padding: 36px 16px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.attendance-empty strong {
+  color: var(--ink-soft);
+}
+
+@media (max-width: 760px) {
+  .attendance-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .attendance-teacher-filter select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .attendance-hint {
+    margin-left: 0;
+  }
+
+  .attendance-grid {
+    min-width: calc(160px + var(--weeks) * 36px + 80px);
+  }
+
+  .attendance-grid .col-session {
+    width: 160px;
+  }
+
+  .attendance-grid .col-total {
+    width: 80px;
+  }
+
+  .attendance-grid .session-cell {
+    padding: 6px 12px;
+  }
+
+  .session-time {
+    display: block;
+    width: auto;
+  }
+
+  .session-copy {
+    max-width: 100%;
   }
 }
 

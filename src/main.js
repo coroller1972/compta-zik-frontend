@@ -280,7 +280,7 @@ function firstDayOfBusinessWeek(year, week) {
 
 function countLabel(count, singular, plural = `${singular}s`) {
   const normalizedCount = Number(count) || 0;
-  return `${normalizedCount} ${normalizedCount === 1 ? singular : plural}`;
+  return `${normalizedCount} ${Math.abs(normalizedCount) <= 1 ? singular : plural}`;
 }
 
 function emptyTotpDigits() {
@@ -719,6 +719,115 @@ const app = createApp({
       .filter((row) => !attendanceTeacherFilterId.value || row.band.teacherId === attendanceTeacherFilterId.value)
       .sort((a, b) => a.band.name.localeCompare(b.band.name, "fr")));
 
+    const ATTENDANCE_STATUS_WORDS = { PRESENT: "présent", ABSENT: "absent", CANCELLED: "annulé", UNRECORDED: "non renseigné" };
+    const TERM_DAY_FORMAT = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
+
+    function weekdayShort(weekday) {
+      return weekday ? weekday.slice(0, 3) : "";
+    }
+
+    function weekdayOrder(weekday) {
+      const index = WEEKDAYS.indexOf(weekday);
+      return index < 0 ? WEEKDAYS.length : index;
+    }
+
+    // Grille : un groupe par professeur (cours individuels), puis les ateliers.
+    const attendanceGroups = computed(() => {
+      const byTeacher = new Map();
+      attendanceCourseRows.value.forEach((row) => {
+        if (!byTeacher.has(row.teacher.id)) byTeacher.set(row.teacher.id, { teacher: row.teacher, rows: [] });
+        byTeacher.get(row.teacher.id).rows.push(row);
+      });
+      const teacherGroups = [...byTeacher.values()]
+        .sort((left, right) => fullName(left.teacher).localeCompare(fullName(right.teacher), "fr"))
+        .map(({ teacher, rows }) => ({
+          key: `teacher-${teacher.id}`,
+          title: fullName(teacher),
+          subtitle: ["Cours individuels", teacher.instrument].filter(Boolean).join(" · "),
+          rows: [...rows]
+            .sort((left, right) => (
+              weekdayOrder(left.course.weekday) - weekdayOrder(right.course.weekday)
+              || String(left.course.startTime).localeCompare(String(right.course.startTime))
+              || fullName(left.musician).localeCompare(fullName(right.musician), "fr")
+            ))
+            .map((row) => ({
+              key: `course-${row.course.id}`,
+              entityType: "individualCourse",
+              entityId: row.course.id,
+              time: `${weekdayShort(row.course.weekday)} ${row.course.startTime || ""}`.trim(),
+              name: fullName(row.musician),
+              detail: row.course.instrument || "",
+              count: row.count,
+            })),
+        }));
+      const workshopRows = attendanceWorkshopRows.value.map((row) => ({
+        key: `workshop-${row.band.id}`,
+        entityType: "workshop",
+        entityId: row.band.id,
+        time: weekdayShort(row.band.weekday),
+        name: row.band.name,
+        detail: [row.teacher ? fullName(row.teacher) : "", countLabel(memberCount(row.band), "musicien")].filter(Boolean).join(" · "),
+        count: row.count,
+      }));
+      return workshopRows.length
+        ? [...teacherGroups, {
+          key: "workshops",
+          title: "Ateliers",
+          subtitle: `Groupes de travail encadrés · ${hoursLabel(state.settings.workshopHours)} par séance`,
+          rows: workshopRows,
+        }]
+        : teacherGroups;
+    });
+
+    const currentAttendanceWeek = computed(() => {
+      const now = new Date();
+      if (Number(state.settings.year) !== now.getFullYear()) return null;
+      const week = isoWeekNumber(now);
+      return weeks.value.includes(week) ? week : null;
+    });
+
+    const attendanceWeekSummary = computed(() => {
+      const week = currentAttendanceWeek.value;
+      if (!week) return null;
+      const summary = { week, PRESENT: 0, ABSENT: 0, CANCELLED: 0, UNRECORDED: 0 };
+      attendanceGroups.value.forEach((group) => group.rows.forEach((row) => {
+        summary[attendanceStatus(row.entityType, row.entityId, week)] += 1;
+      }));
+      return summary;
+    });
+
+    const attendanceTotalPresent = computed(() => attendanceGroups.value
+      .reduce((sum, group) => sum + group.rows.reduce((groupSum, row) => groupSum + row.count, 0), 0));
+
+    const attendanceSaving = computed(() => savingAttendanceKeys.size > 0);
+
+    const termEyebrow = computed(() => {
+      const term = selectedTerm.value;
+      if (!term) return "";
+      const year = Number(state.settings.year);
+      const start = firstDayOfBusinessWeek(year, term.startWeek);
+      const end = firstDayOfBusinessWeek(year, term.endWeek);
+      end.setDate(end.getDate() + 6);
+      return `${term.name} · semaines ${term.startWeek} à ${term.endWeek} · ${TERM_DAY_FORMAT.format(start)} → ${TERM_DAY_FORMAT.format(end)}`;
+    });
+
+    function attendanceCellLabel(row, week) {
+      const status = attendanceStatus(row.entityType, row.entityId, week);
+      const date = attendanceDateLabel(row.entityType, row.entityId, week);
+      const locked = isAttendanceLocked(row.entityType, row.entityId, week) ? " (facturée, verrouillée)" : "";
+      return `${row.name}, semaine ${week}${date ? ` (${date})` : ""} : ${ATTENDANCE_STATUS_WORDS[status] || status}${locked}`;
+    }
+
+    function attendanceCellTitle(row, week) {
+      const attendance = attendanceFor(row.entityType, row.entityId, week);
+      const date = attendanceDateLabel(row.entityType, row.entityId, week);
+      const status = ATTENDANCE_STATUS_WORDS[attendanceStatus(row.entityType, row.entityId, week)];
+      const base = `S${week}${date ? ` · ${date}` : ""} · ${status}`;
+      return attendance?.billingLocked
+        ? `${base} · rémunérée par ${attendance.billingDocumentNumber || attendance.billingDocumentId}`
+        : base;
+    }
+
     const teacherRequestsById = computed(() => Object.fromEntries(
       (billingSummary.value?.teacherInvoiceRequests || []).map((request) => [request.teacherId, request]),
     ));
@@ -985,6 +1094,7 @@ const app = createApp({
       const labels = {
         dashboard: `Saison ${state.settings.year}`,
         expenses: `Dépenses ${state.settings.year}`,
+        attendance: "Présences",
         account: "Compte utilisateur",
         people: "Musiciens",
         slots: "Créneaux individuels",
@@ -1184,10 +1294,6 @@ const app = createApp({
       return attendance?.billingLocked
         ? `Rémunérée par ${attendance.billingDocumentNumber || attendance.billingDocumentId}`
         : attendanceStatus(entityType, entityId, week);
-    }
-
-    function attendanceSymbol(entityType, entityId, week) {
-      return { PRESENT: "1", ABSENT: "–", CANCELLED: "×" }[attendanceStatus(entityType, entityId, week)] || "";
     }
 
     function scheduledSessionDate(entityType, entityId, week) {
@@ -3463,6 +3569,14 @@ const app = createApp({
       yearStatus,
       yearStatusLabel,
       navGroups,
+      attendanceGroups,
+      currentAttendanceWeek,
+      attendanceWeekSummary,
+      attendanceTotalPresent,
+      attendanceSaving,
+      termEyebrow,
+      attendanceCellLabel,
+      attendanceCellTitle,
       seasonPickerOpen,
       openNavView,
       switchSeason,
@@ -3649,7 +3763,6 @@ const app = createApp({
       attendanceStatus,
       isAttendanceLocked,
       attendanceTitle,
-      attendanceSymbol,
       attendanceDateLabel,
       isAttendanceSaving,
       toggleAttendance,
@@ -4016,6 +4129,10 @@ const app = createApp({
           <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
           <circle cx="16.5" cy="15" r="2.5" fill="currentColor" />
         </symbol>
+        <symbol id="icon-lock" viewBox="0 0 24 24">
+          <rect x="5" y="11" width="14" height="10" rx="2" />
+          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+        </symbol>
         <symbol id="icon-arrow-right" viewBox="0 0 24 24">
           <path d="M5 12h14M13 6l6 6-6 6" />
         </symbol>
@@ -4131,11 +4248,15 @@ const app = createApp({
         <header class="topbar">
           <div class="topbar-title">
             <p v-if="activeView === 'dashboard'" class="eyebrow">Situation consolidée au {{ dashboardDateLabel }}</p>
+            <p v-else-if="viewUsesTerm && termEyebrow" class="eyebrow">{{ termEyebrow }}</p>
             <p v-else class="eyebrow">Comptabilité activité musique</p>
             <h1>{{ pageTitle }}</h1>
           </div>
           <div class="topbar-actions">
-            <div v-if="activeView === 'dashboard' && dashboardTerms.length" class="segmented" role="group" aria-label="Trimestre">
+            <span v-if="activeView === 'attendance' && can('PRESENCE_WRITE')" :class="['save-indicator', { saving: attendanceSaving }]" role="status">
+              {{ attendanceSaving ? 'Enregistrement…' : 'Enregistré automatiquement' }}
+            </span>
+            <div v-if="viewUsesTerm && dashboardTerms.length" class="segmented" role="group" aria-label="Trimestre">
               <button
                 v-for="term in dashboardTerms"
                 :key="term.id"
@@ -4306,111 +4427,107 @@ const app = createApp({
           </section>
         </section>
 
-        <section v-if="activeView === 'attendance' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack">
+        <section v-if="activeView === 'attendance' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack attendance-view">
           <div class="attendance-toolbar">
             <label class="attendance-teacher-filter">
-              <span>Professeur</span>
+              <span class="visually-hidden">Professeur</span>
               <select v-model="attendanceTeacherFilterId" aria-label="Filtrer les présences par professeur">
                 <option value="">Tous les professeurs</option>
                 <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
               </select>
             </label>
-            <div class="attendance-legend" aria-label="Légende des présences">
-              <span><i class="legend-dot unrecorded"></i>Non renseigné</span>
-              <span><i class="legend-dot present">1</i>Présent</span>
-              <span><i class="legend-dot absent">–</i>Absent</span>
-              <span><i class="legend-dot cancelled">×</i>Annulé</span>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Cours individuels</h2>
-                <span>Tous les élèves du trimestre, une case par semaine</span>
-              </div>
-            </div>
-            <div class="attendance-table-wrap">
-              <table class="attendance-table">
-                <thead>
-                  <tr>
-                    <th class="sticky-col wide">Élève</th>
-                    <th>Créneau</th>
-                    <th>Prof</th>
-                    <th v-for="week in weeks" :key="week" :class="['week-head', { holiday: isHolidayWeek(week) }]">S{{ week }}</th>
-                    <th class="num">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in attendanceCourseRows" :key="row.course.id">
-                    <td class="sticky-col wide">
-                      <strong>{{ fullName(row.musician) }}</strong>
-                      <small>{{ row.course.instrument }}</small>
-                    </td>
-                    <td>{{ row.course.weekday }} {{ row.course.startTime }}</td>
-                    <td>{{ row.teacher.firstName }}</td>
-                    <td v-for="week in weeks" :key="week" :class="['presence-cell', { holiday: isHolidayWeek(week) }]">
-                      <button
-                        :class="['attendance-state', attendanceStatus('individualCourse', row.course.id, week).toLowerCase()]"
-                        @click="toggleAttendance('individualCourse', row.course.id, week)"
-                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('individualCourse', row.course.id, week) || isAttendanceLocked('individualCourse', row.course.id, week)"
-                        :aria-label="'Présence ' + fullName(row.musician) + ' semaine ' + week + ' : ' + attendanceStatus('individualCourse', row.course.id, week)"
-                        :title="attendanceTitle('individualCourse', row.course.id, week)"
-                      >
-                        {{ isAttendanceLocked('individualCourse', row.course.id, week) ? '🔒' : attendanceSymbol('individualCourse', row.course.id, week) }}
-                      </button>
-                      <small class="session-date-label">{{ attendanceDateLabel('individualCourse', row.course.id, week) }}</small>
-                    </td>
-                    <td class="num">{{ row.count }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <ul class="attendance-legend" aria-label="Légende des présences">
+              <li><span class="att-glyph present" aria-hidden="true"></span>Présent</li>
+              <li><span class="att-glyph absent" aria-hidden="true"></span>Absent</li>
+              <li><span class="att-glyph cancelled" aria-hidden="true"></span>Annulé</li>
+              <li><span class="att-glyph unrecorded" aria-hidden="true"></span>Non renseigné</li>
+              <li><span class="legend-hatch" aria-hidden="true"></span>Vacances (saisie possible)</li>
+              <li><svg class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>Facturée</li>
+            </ul>
+            <span v-if="can('PRESENCE_WRITE')" class="attendance-hint">Un clic fait défiler : présent → absent → annulé</span>
           </div>
 
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Groupes de travail</h2>
-                <span>Une séance cochée vaut 1h15 pour le professeur</span>
-              </div>
-            </div>
-            <div class="attendance-table-wrap">
-              <table class="attendance-table">
+          <section class="attendance-card" aria-label="Grille des présences du trimestre">
+            <div v-if="attendanceGroups.length" class="attendance-scroll">
+              <table class="attendance-grid" :style="{ '--weeks': weeks.length }">
+                <colgroup>
+                  <col class="col-session" />
+                  <col v-for="week in weeks" :key="week" />
+                  <col class="col-total" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th class="sticky-col wide">Groupe</th>
-                    <th>Jour</th>
-                    <th>Prof</th>
-                    <th v-for="week in weeks" :key="week" :class="['week-head', { holiday: isHolidayWeek(week) }]">S{{ week }}</th>
-                    <th class="num">Total</th>
+                    <th scope="col" class="session-head">Séance</th>
+                    <th
+                      v-for="week in weeks"
+                      :key="week"
+                      scope="col"
+                      :class="['week-head', { current: week === currentAttendanceWeek, holiday: isHolidayWeek(week) }]"
+                      :title="isHolidayWeek(week) ? 'Semaine ' + week + ' · vacances' : 'Semaine ' + week"
+                    >
+                      <span class="visually-hidden">Semaine </span>{{ week === currentAttendanceWeek ? 'S' + week : week }}
+                    </th>
+                    <th scope="col" class="total-head">Total</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr v-for="row in attendanceWorkshopRows" :key="row.band.id">
-                    <td class="sticky-col wide">
-                      <strong>{{ row.band.name }}</strong>
-                      <small>{{ memberCount(row.band) }} membres</small>
-                    </td>
-                    <td>{{ row.band.weekday || '-' }}</td>
-                    <td>{{ row.teacher?.firstName || '-' }}</td>
-                    <td v-for="week in weeks" :key="week" :class="['presence-cell', { holiday: isHolidayWeek(week) }]">
+                <tbody v-for="group in attendanceGroups" :key="group.key">
+                  <tr class="attendance-group-row">
+                    <th :colspan="weeks.length + 2" scope="colgroup">
+                      <strong>{{ group.title }}</strong>
+                      <span>{{ group.subtitle }}</span>
+                    </th>
+                  </tr>
+                  <tr v-for="row in group.rows" :key="row.key" class="attendance-row">
+                    <th scope="row" class="session-cell">
+                      <span class="session-time">{{ row.time }}</span>
+                      <span class="session-copy">
+                        <strong>{{ row.name }}</strong>
+                        <span>{{ row.detail }}</span>
+                      </span>
+                    </th>
+                    <td
+                      v-for="week in weeks"
+                      :key="week"
+                      :class="['att-cell', { current: week === currentAttendanceWeek, holiday: isHolidayWeek(week) }]"
+                    >
                       <button
-                        :class="['attendance-state', attendanceStatus('workshop', row.band.id, week).toLowerCase()]"
-                        @click="toggleAttendance('workshop', row.band.id, week)"
-                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('workshop', row.band.id, week) || isAttendanceLocked('workshop', row.band.id, week)"
-                        :aria-label="'Séance ' + row.band.name + ' semaine ' + week + ' : ' + attendanceStatus('workshop', row.band.id, week)"
-                        :title="attendanceTitle('workshop', row.band.id, week)"
+                        type="button"
+                        :class="['att-button', { locked: isAttendanceLocked(row.entityType, row.entityId, week), saving: isAttendanceSaving(row.entityType, row.entityId, week) }]"
+                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving(row.entityType, row.entityId, week) || isAttendanceLocked(row.entityType, row.entityId, week)"
+                        :aria-label="attendanceCellLabel(row, week)"
+                        :title="attendanceCellTitle(row, week)"
+                        @click="toggleAttendance(row.entityType, row.entityId, week)"
                       >
-                        {{ isAttendanceLocked('workshop', row.band.id, week) ? '🔒' : attendanceSymbol('workshop', row.band.id, week) }}
+                        <span :class="['att-glyph', attendanceStatus(row.entityType, row.entityId, week).toLowerCase()]" aria-hidden="true"></span>
+                        <svg v-if="isAttendanceLocked(row.entityType, row.entityId, week)" class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>
                       </button>
-                      <small class="session-date-label">{{ attendanceDateLabel('workshop', row.band.id, week) }}</small>
                     </td>
-                    <td class="num">{{ row.count }}</td>
+                    <td class="total-cell">
+                      <strong>{{ row.count }}</strong>
+                      <span>{{ row.count > 1 ? 'séances' : 'séance' }}</span>
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
-          </div>
+            <div v-else class="attendance-empty">
+              <strong>Aucune séance à afficher</strong>
+              <span>{{ attendanceTeacherFilterId ? 'Ce professeur n’a ni cours ni atelier sur le trimestre.' : 'Ajoutez des cours individuels ou des ateliers pour remplir la grille.' }}</span>
+            </div>
+            <footer v-if="attendanceGroups.length" class="attendance-footer">
+              <span v-if="attendanceWeekSummary">
+                Semaine {{ attendanceWeekSummary.week }} ·
+                <strong>{{ countLabel(attendanceWeekSummary.PRESENT, 'présent') }}</strong> ·
+                {{ countLabel(attendanceWeekSummary.ABSENT, 'absent') }} ·
+                {{ attendanceWeekSummary.UNRECORDED }} à renseigner
+              </span>
+              <span v-else></span>
+              <span class="attendance-total">
+                Séances présentes du trimestre
+                <strong>{{ attendanceTotalPresent }}</strong>
+              </span>
+            </footer>
+          </section>
         </section>
 
         <section v-if="activeView === 'signatures' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack printable-view">

@@ -127,6 +127,7 @@ Statut de document (`DRAFT` / `GENERATED` / `SENT` / `CANCELLED`) :
 | `UNRECORDED` | Point 4 px `--att-unrecorded` |
 | Semaine de vacances | Fond de cellule `--hatch` (la saisie reste possible) |
 | Semaine courante | Fond de colonne `--att-current-week`, en-tête plein `--brass` avec texte `--on-brass` |
+| Séance facturée (verrouillée) | Symbole inchangé + petit cadenas 10 px `--ink-faint` en coin ; cellule non cliquable |
 
 La forme porte le sens, pas seulement la couleur. Chaque cellule est un vrai `<button>` avec un `aria-label` du type « Léa Martin, semaine 36 : présent ».
 
@@ -203,6 +204,7 @@ Fond `--paper-deep`, bordure droite `--line`, padding 24 × 16. De haut en bas :
 - Grille dans une carte : colonne séance de 250 px (horaire en mono + nom + instrument), une colonne par semaine du trimestre, colonne total de 96 px (montant + nombre de séances). Lignes de 48 px minimum.
 - Groupes de lignes par professeur puis « Ateliers », avec un en-tête `--card-alt` (nom en display 21 px).
 - Pied de grille `--card-alt` : récapitulatif de la semaine courante + total du trimestre en display.
+- La colonne Total et le total du pied comptent des **séances**, pas des euros : le backend ne fournit pas de montant par ligne et le frontend ne calcule aucun montant (les montants des maquettes sont illustratifs).
 
 ### Émargement mobile (390 px)
 
