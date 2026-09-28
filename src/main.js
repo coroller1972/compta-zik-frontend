@@ -802,6 +802,131 @@ const app = createApp({
 
     const attendanceSaving = computed(() => savingAttendanceKeys.size > 0);
 
+    // Émargement mobile par jour (partition.md §6) : semaine du trimestre, onglets Lun–Ven, une carte par séance.
+    const DAY_ENTRY_CHOICES = [
+      { value: "PRESENT", label: "Présent" },
+      { value: "ABSENT", label: "Absent" },
+      { value: "CANCELLED", label: "Annulé" },
+    ];
+    const dayEntryWeek = ref(null);
+    const dayEntryDay = ref(null);
+
+    const dayEntryWeekValue = computed(() => (
+      weeks.value.includes(dayEntryWeek.value) ? dayEntryWeek.value : (currentAttendanceWeek.value || weeks.value[0] || null)
+    ));
+
+    function dayEntryMonday(week) {
+      const first = firstDayOfBusinessWeek(Number(state.settings.year), week);
+      first.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+      return first;
+    }
+
+    function dayEntrySessionsFor(dayName) {
+      const courses = state.individualCourses
+        .filter((course) => course.weekday === dayName)
+        .map((course) => ({ course, musician: musiciansById.value[course.musicianId], teacher: teachersById.value[course.teacherId] }))
+        .filter((row) => row.musician && row.teacher && (isActiveCourse(row.course) || hasTermAttendance("individualCourse", row.course.id)))
+        .map((row) => ({
+          key: `course-${row.course.id}`,
+          entityType: "individualCourse",
+          entityId: row.course.id,
+          time: row.course.startTime || "",
+          name: fullName(row.musician),
+          detail: [row.course.instrument, fullName(row.teacher)].filter(Boolean).join(" · "),
+        }));
+      const workshops = workshopBands.value
+        .filter((band) => band.weekday === dayName)
+        .map((band) => ({
+          key: `workshop-${band.id}`,
+          entityType: "workshop",
+          entityId: band.id,
+          time: "Atelier",
+          name: band.name,
+          detail: [countLabel(memberCount(band), "musicien"), teachersById.value[band.teacherId] ? fullName(teachersById.value[band.teacherId]) : ""].filter(Boolean).join(" · "),
+        }));
+      return [...courses.sort((left, right) => String(left.time).localeCompare(String(right.time))), ...workshops];
+    }
+
+    const dayEntryDays = computed(() => {
+      const week = dayEntryWeekValue.value;
+      if (!week) return [];
+      const monday = dayEntryMonday(week);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return WEEKDAYS.map((name, index) => {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + index);
+        const sessions = dayEntrySessionsFor(name);
+        return {
+          name,
+          short: weekdayShort(name),
+          date,
+          number: date.getDate(),
+          isToday: date.getTime() === today.getTime(),
+          pending: date <= today && sessions.some((session) => attendanceStatus(session.entityType, session.entityId, week) === "UNRECORDED"),
+          sessionCount: sessions.length,
+        };
+      });
+    });
+
+    const dayEntryDayValue = computed(() => {
+      const days = dayEntryDays.value;
+      if (days.some((day) => day.name === dayEntryDay.value)) return dayEntryDay.value;
+      return (days.find((day) => day.isToday) || days.find((day) => day.sessionCount) || days[0])?.name || WEEKDAYS[0];
+    });
+
+    const dayEntrySessions = computed(() => dayEntrySessionsFor(dayEntryDayValue.value));
+
+    const dayEntryTitle = computed(() => {
+      const day = dayEntryDays.value.find((item) => item.name === dayEntryDayValue.value);
+      return day ? `${day.name} ${day.number}` : dayEntryDayValue.value;
+    });
+
+    const dayEntryWeekLabel = computed(() => {
+      const week = dayEntryWeekValue.value;
+      if (!week) return "";
+      const start = dayEntryMonday(week);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      const startLabel = start.getMonth() === end.getMonth() ? String(start.getDate()) : TERM_DAY_FORMAT.format(start);
+      return `${startLabel} → ${TERM_DAY_FORMAT.format(end)} · ${selectedTerm.value?.name || ""}`;
+    });
+
+    const dayEntryRecorded = computed(() => dayEntrySessions.value
+      .filter((session) => attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue.value) !== "UNRECORDED").length);
+
+    function shiftDayEntryWeek(delta) {
+      const index = weeks.value.indexOf(dayEntryWeekValue.value);
+      const next = weeks.value[index + delta];
+      if (!next) return;
+      dayEntryWeek.value = next;
+      dayEntryDay.value = null;
+    }
+
+    const mobileMenuOpen = ref(false);
+    const mobileTabs = computed(() => {
+      if (mustChangePassword.value) return [];
+      return [
+        { view: "dashboard", label: "Tableau", visible: true },
+        { view: "attendance", label: "Présences", visible: can("PRESENCE_READ") },
+        { view: "signatures", label: "Émargement", visible: can("PRESENCE_READ") },
+      ].filter((tab) => tab.visible);
+    });
+
+    watch(activeView, () => {
+      mobileMenuOpen.value = false;
+    });
+    watch(selectedTermId, () => {
+      dayEntryWeek.value = null;
+      dayEntryDay.value = null;
+    });
+    watch(mobileMenuOpen, (open) => {
+      nextTick(() => {
+        if (open) document.querySelector(".sidebar-close")?.focus();
+        else if (document.activeElement === document.body || document.activeElement?.closest(".sidebar")) document.querySelector(".tab-more")?.focus();
+      });
+    });
+
     const termEyebrow = computed(() => {
       const term = selectedTerm.value;
       if (!term) return "";
@@ -1424,7 +1549,7 @@ const app = createApp({
       return savingAttendanceKeys.has(attendanceSaveKey(entityType, entityId, week));
     }
 
-    async function toggleAttendance(entityType, entityId, week) {
+    async function setAttendanceStatus(entityType, entityId, week, status) {
       if (!can("PRESENCE_WRITE")) return;
       if (!ensureYearNotClosed("Les présences sont verrouillées")) return;
       if (isAttendanceLocked(entityType, entityId, week)) {
@@ -1437,8 +1562,9 @@ const app = createApp({
       const existing = attendanceFor(entityType, entityId, week);
       try {
         if (existing) {
-          existing.status = { PRESENT: "ABSENT", ABSENT: "CANCELLED", CANCELLED: "PRESENT" }[existing.status] || "PRESENT";
-          existing.present = existing.status === "PRESENT";
+          if (existing.status === status) return;
+          existing.status = status;
+          existing.present = status === "PRESENT";
           await saveAttendance(existing);
           return;
         }
@@ -1448,8 +1574,8 @@ const app = createApp({
           week,
           entityType,
           entityId,
-          present: true,
-          status: "PRESENT",
+          present: status === "PRESENT",
+          status,
           sessionDate: scheduledSessionDate(entityType, entityId, week),
         };
         state.attendance.push(entry);
@@ -1457,6 +1583,11 @@ const app = createApp({
       } finally {
         savingAttendanceKeys.delete(saveKey);
       }
+    }
+
+    async function toggleAttendance(entityType, entityId, week) {
+      const next = { PRESENT: "ABSENT", ABSENT: "CANCELLED", CANCELLED: "PRESENT" }[attendanceStatus(entityType, entityId, week)] || "PRESENT";
+      await setAttendanceStatus(entityType, entityId, week, next);
     }
 
     function resetMusicianForm() {
@@ -3587,6 +3718,19 @@ const app = createApp({
       attendanceWeekSummary,
       attendanceTotalPresent,
       attendanceSaving,
+      DAY_ENTRY_CHOICES,
+      dayEntryDay,
+      dayEntryWeekValue,
+      dayEntryDays,
+      dayEntryDayValue,
+      dayEntrySessions,
+      dayEntryTitle,
+      dayEntryWeekLabel,
+      dayEntryRecorded,
+      shiftDayEntryWeek,
+      setAttendanceStatus,
+      mobileMenuOpen,
+      mobileTabs,
       termEyebrow,
       attendanceCellLabel,
       attendanceCellTitle,
@@ -3925,6 +4069,17 @@ const app = createApp({
       <symbol id="icon-arrow-right" viewBox="0 0 24 24">
         <path d="M5 12h14M13 6l6 6-6 6" />
       </symbol>
+      <symbol id="icon-chevron-left" viewBox="0 0 24 24">
+        <path d="M15 6l-6 6 6 6" />
+      </symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24">
+        <path d="M9 6l6 6-6 6" />
+      </symbol>
+      <symbol id="icon-more" viewBox="0 0 24 24">
+        <circle cx="5" cy="12" r="1.5" />
+        <circle cx="12" cy="12" r="1.5" />
+        <circle cx="19" cy="12" r="1.5" />
+      </symbol>
       <symbol id="icon-chevron-down" viewBox="0 0 24 24">
         <path d="M7 10l5 5 5-5" />
       </symbol>
@@ -4231,8 +4386,11 @@ const app = createApp({
         </div>
       </div>
     </main>
-    <main v-else class="shell">
-      <aside class="sidebar">
+    <main v-else :class="['shell', { 'menu-open': mobileMenuOpen }]">
+      <aside id="app-menu" class="sidebar" @keydown.esc="mobileMenuOpen = false">
+        <button type="button" class="sidebar-close" aria-label="Fermer le menu" @click="mobileMenuOpen = false">
+          <svg aria-hidden="true"><use href="#icon-x"></use></svg>
+        </button>
         <div class="sidebar-brand">
           <span class="sidebar-mark" aria-hidden="true"><svg><use href="#icon-note"></use></svg></span>
           <span class="wordmark">Compta <em>Zik</em></span>
@@ -4294,6 +4452,13 @@ const app = createApp({
       </aside>
 
       <section class="content">
+        <div class="mobile-header">
+          <span class="wordmark">Compta <em>Zik</em></span>
+          <button type="button" class="mobile-avatar" :aria-label="canUseAccount ? 'Mon compte' : 'Ouvrir le menu'" @click="canUseAccount ? openAccountView() : (mobileMenuOpen = true)">
+            <img v-if="currentUserAvatarUrl" :src="currentUserAvatarUrl" alt="" />
+            <span v-else aria-hidden="true">{{ currentUserInitials }}</span>
+          </button>
+        </div>
         <header class="topbar">
           <div class="topbar-title">
             <p v-if="activeView === 'dashboard'" class="eyebrow">Situation consolidée au {{ dashboardDateLabel }}</p>
@@ -4580,6 +4745,74 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'signatures' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack printable-view">
+          <section v-if="dayEntryWeekValue" class="day-entry" aria-label="Émargement du jour">
+            <div class="day-entry-week">
+              <button type="button" class="day-entry-arrow" aria-label="Semaine précédente" :disabled="weeks.indexOf(dayEntryWeekValue) <= 0" @click="shiftDayEntryWeek(-1)">
+                <svg aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
+              </button>
+              <span class="day-entry-week-label">
+                <strong>Semaine {{ dayEntryWeekValue }}</strong>
+                <span>{{ dayEntryWeekLabel }}</span>
+              </span>
+              <button type="button" class="day-entry-arrow" aria-label="Semaine suivante" :disabled="weeks.indexOf(dayEntryWeekValue) >= weeks.length - 1" @click="shiftDayEntryWeek(1)">
+                <svg aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+              </button>
+            </div>
+            <div class="day-entry-days" role="group" aria-label="Jour">
+              <button
+                v-for="day in dayEntryDays"
+                :key="day.name"
+                type="button"
+                :aria-pressed="day.name === dayEntryDayValue ? 'true' : 'false'"
+                :aria-label="day.name + ' ' + day.number + (day.pending ? ', séances à renseigner' : '')"
+                @click="dayEntryDay = day.name"
+              >
+                <span>{{ day.short }}</span>
+                <strong>{{ day.number }}</strong>
+                <i v-if="day.pending" class="day-pending-dot" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div class="day-entry-title">
+              <h2>{{ dayEntryTitle }}</h2>
+              <span>{{ countLabel(dayEntrySessions.length, 'séance') }}</span>
+            </div>
+            <p v-if="isHolidayWeek(dayEntryWeekValue)" class="day-entry-note">Semaine de vacances : la saisie reste possible.</p>
+            <article
+              v-for="session in dayEntrySessions"
+              :key="session.key"
+              :class="['day-card', { pending: attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue) === 'UNRECORDED' }]"
+            >
+              <div class="day-card-head">
+                <span class="day-card-time">{{ session.time }}</span>
+                <span class="day-card-copy">
+                  <strong>{{ session.name }}</strong>
+                  <span>{{ session.detail }}</span>
+                </span>
+                <span v-if="isAttendanceLocked(session.entityType, session.entityId, dayEntryWeekValue)" class="day-card-pill locked" :title="attendanceTitle(session.entityType, session.entityId, dayEntryWeekValue)">
+                  <svg class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>Facturée
+                </span>
+                <span v-else-if="attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue) === 'UNRECORDED'" class="day-card-pill">À renseigner</span>
+              </div>
+              <div class="day-card-choices" role="group" :aria-label="'Présence : ' + session.name">
+                <button
+                  v-for="choice in DAY_ENTRY_CHOICES"
+                  :key="choice.value"
+                  type="button"
+                  :class="['day-choice', choice.value.toLowerCase()]"
+                  :aria-pressed="attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue) === choice.value ? 'true' : 'false'"
+                  :disabled="!can('PRESENCE_WRITE') || isAttendanceLocked(session.entityType, session.entityId, dayEntryWeekValue) || isAttendanceSaving(session.entityType, session.entityId, dayEntryWeekValue)"
+                  @click="setAttendanceStatus(session.entityType, session.entityId, dayEntryWeekValue, choice.value)"
+                >{{ choice.label }}</button>
+              </div>
+            </article>
+            <p v-if="!dayEntrySessions.length" class="day-entry-empty">Aucune séance ce jour-là.</p>
+            <div v-if="dayEntrySessions.length" class="day-entry-footer">
+              <span><strong>{{ dayEntryRecorded }} sur {{ dayEntrySessions.length }}</strong> séances renseignées</span>
+              <span v-if="can('PRESENCE_WRITE')" :class="['save-indicator', { saving: attendanceSaving }]" role="status">
+                {{ attendanceSaving ? 'Enregistrement…' : 'Enregistré automatiquement' }}
+              </span>
+            </div>
+          </section>
           <section class="panel signature-page">
             <div class="panel-head">
               <div>
@@ -5974,6 +6207,29 @@ const app = createApp({
           </div>
         </div>
       </section>
+      <nav class="tab-bar" aria-label="Navigation mobile">
+        <button
+          v-for="tab in mobileTabs"
+          :key="tab.view"
+          type="button"
+          :class="{ active: activeView === tab.view && !mobileMenuOpen }"
+          :aria-current="activeView === tab.view ? 'page' : null"
+          @click="openNavView(tab.view)"
+        >
+          <svg aria-hidden="true"><use :href="'#icon-nav-' + tab.view"></use></svg>
+          {{ tab.label }}
+        </button>
+        <button
+          type="button"
+          :class="['tab-more', { active: mobileMenuOpen }]"
+          aria-controls="app-menu"
+          :aria-expanded="mobileMenuOpen ? 'true' : 'false'"
+          @click="mobileMenuOpen = !mobileMenuOpen"
+        >
+          <svg aria-hidden="true"><use href="#icon-more"></use></svg>
+          Plus
+        </button>
+      </nav>
       <avatar-crop-dialog :file="avatarCropFile" :busy="avatarUploading" :error="avatarUploadError" @cancel="cancelAvatarCrop" @confirm="uploadAvatar"></avatar-crop-dialog>
     </main>
   `,

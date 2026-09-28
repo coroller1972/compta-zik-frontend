@@ -212,8 +212,9 @@ Fond `--paper-deep`, bordure droite `--line`, padding 24 × 16. De haut en bas :
 Saisie rapide des présences d'une journée :
 - Logotype + avatar ; navigation de semaine (flèches 44 px) ; onglets Lun–Ven ; titre display « Mardi 22 ».
 - Une carte par séance, avec trois boutons radio pleine largeur : Présent (plein pétrole), Absent (teinté brique), Annulé. Une séance non renseignée a une bordure pointillée laiton et une pastille « À renseigner ».
-- Barre d'action : « 2 sur 3 séances renseignées » + bouton « Enregistrer ».
-- Barre d'onglets en bas : Tableau, Présences, Émargement, Plus.
+- Barre d'action : « 2 sur 3 séances renseignées » + indicateur « Enregistré automatiquement » (chaque choix est enregistré aussitôt, comme dans la grille : pas de bouton « Enregistrer »).
+- Barre d'onglets en bas : Tableau, Présences, Émargement, Plus. « Plus » ouvre la barre latérale en plein écran (navigation complète, saison, compte, déconnexion).
+- Mise en page mobile sous 980 px : en-tête compact (logotype + avatar vers Compte), barre d'onglets, émargement par jour à la place des feuilles imprimables (qui restent l'affichage desktop et l'impression).
 
 ## 7. Mode nuit
 
@@ -230,7 +231,6 @@ Ces éléments apparaissent dans les maquettes mais **n'existent pas encore** ; 
 - Badge du nombre de brouillons sur « Facturation ».
 - Encart « À traiter avant clôture » sur le tableau de bord.
 - Filtre Tout / Cours / Ateliers dans la grille de présences.
-- Écran d'émargement mobile organisé par jour.
 
 Les noms d'élèves et les montants des maquettes sont **fictifs** ; seuls les noms des deux professeurs sont réels.
 
