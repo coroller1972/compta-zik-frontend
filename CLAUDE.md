@@ -13,7 +13,8 @@ SPA Vue 3 sans étape de build pour la comptabilité d'une activité musicale (p
 - `index.html` : charge les feuilles de style vendorisées puis `src/main.js`.
 - `src/main.js` : toute l'application (composant Vue unique, gabarit en chaîne).
 - `src/styles.css` : tous les styles.
-- `src/vendor/` : dépendances vendorisées (Vue, polices, icônes, QR code). **Aucun CDN** : toute nouvelle ressource est copiée ici avec sa licence.
+- `src/vendor/` : dépendances vendorisées (Vue, polices, QR code). **Aucun CDN** : toute nouvelle ressource est copiée ici avec sa licence.
+- Icônes : sprite SVG `<symbol id="icon-…">` en tête du gabarit de `src/main.js` (voir `partition.md` §5).
 - `src/session-transport.mjs`, `src/avatar-crop*.mjs` : modules testés dans `tests/`.
 
 ## Règles

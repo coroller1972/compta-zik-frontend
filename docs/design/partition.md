@@ -172,7 +172,7 @@ Hauteur 44 px, rayon 10, bordure 1 px `--line` (un cran plus foncé au survol), 
 
 ### Icônes
 
-Icônes linéaires, trait 2 px, 18 px dans la navigation. On peut conserver Phosphor (déjà vendorisé) en vérifiant que le sous-ensemble contient les glyphes nécessaires ; sinon reprendre les SVG inline des maquettes. Correspondance : tableau de bord `squares-four`, présences `calendar-check`, émargement `pen-nib`, musiciens `users`, créneaux `clock`, groupes `music-notes`, dépenses `receipt`, facturation `file-text`, import/export `upload-simple`, configuration `sliders-horizontal`, déconnexion `sign-out`.
+Icônes linéaires, trait 2 px, 18 px dans la navigation, `currentColor`. Elles sont définies une seule fois dans le sprite SVG en tête du gabarit (`<symbol id="icon-…">` dans `src/main.js`) et utilisées par `<svg class="icon"><use href="#icon-…"></use></svg>`. Phosphor a été retiré (son sous-ensemble vendorisé ne contenait pas les glyphes utilisés). Pour une nouvelle icône, ajouter un `<symbol>` 24 × 24 dans le même style. Navigation : `icon-nav-<vue>` (tableau de bord, présences, émargement, musiciens, créneaux, groupes, dépenses, facturation, import/export, configuration), déconnexion `icon-log-out`.
 
 ## 6. Écrans
 

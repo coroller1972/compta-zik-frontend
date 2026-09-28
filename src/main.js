@@ -3861,6 +3861,126 @@ const app = createApp({
     };
   },
   template: `
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="icon-edit" viewBox="0 0 24 24">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 14H6L5 6" />
+        <path d="M10 11v5" />
+        <path d="M14 11v5" />
+      </symbol>
+      <symbol id="icon-key" viewBox="0 0 24 24">
+        <circle cx="7.5" cy="14.5" r="3.5" />
+        <path d="M10 12l10-10" />
+        <path d="M15 7l2 2" />
+        <path d="M17 5l2 2" />
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="11" height="11" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </symbol>
+      <symbol id="icon-user-check" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M16 11l2 2 4-4" />
+      </symbol>
+      <symbol id="icon-user-x" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M17 8l5 5" />
+        <path d="M22 8l-5 5" />
+      </symbol>
+      <symbol id="icon-log-out" viewBox="0 0 24 24">
+        <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />
+      </symbol>
+      <symbol id="icon-note" viewBox="0 0 24 24">
+        <path d="M9 18V5l10-2v12" />
+        <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
+        <circle cx="16.5" cy="15" r="2.5" fill="currentColor" />
+      </symbol>
+      <symbol id="icon-lock" viewBox="0 0 24 24">
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      </symbol>
+      <symbol id="icon-arrow-right" viewBox="0 0 24 24">
+        <path d="M5 12h14M13 6l6 6-6 6" />
+      </symbol>
+      <symbol id="icon-chevron-down" viewBox="0 0 24 24">
+        <path d="M7 10l5 5 5-5" />
+      </symbol>
+      <symbol id="icon-nav-dashboard" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="9" rx="1.5" />
+        <rect x="14" y="3" width="7" height="5" rx="1.5" />
+        <rect x="14" y="12" width="7" height="9" rx="1.5" />
+        <rect x="3" y="16" width="7" height="5" rx="1.5" />
+      </symbol>
+      <symbol id="icon-nav-attendance" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="17" rx="2" />
+        <path d="M3 9h18M8 2v4M16 2v4M8.5 15l2.5 2.5 4.5-5" />
+      </symbol>
+      <symbol id="icon-nav-signatures" viewBox="0 0 24 24">
+        <path d="M4 21h16M6 17l10-10 3 3-10 10H6v-3z" />
+      </symbol>
+      <symbol id="icon-nav-people" viewBox="0 0 24 24">
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M18 14.8c2 .7 3.2 2.5 3.5 5.2" />
+      </symbol>
+      <symbol id="icon-nav-slots" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </symbol>
+      <symbol id="icon-nav-groups" viewBox="0 0 24 24">
+        <path d="M9 18V5l11-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="17" cy="16" r="3" />
+      </symbol>
+      <symbol id="icon-nav-expenses" viewBox="0 0 24 24">
+        <path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z" />
+        <path d="M9 7h6M9 11h6M9 15h4" />
+      </symbol>
+      <symbol id="icon-nav-billing" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+        <path d="M14 2v6h6M8 13h8M8 17h5" />
+      </symbol>
+      <symbol id="icon-nav-data-transfer" viewBox="0 0 24 24">
+        <path d="M7 9l5-5 5 5M12 4v11M5 20h14" />
+      </symbol>
+      <symbol id="icon-nav-settings" viewBox="0 0 24 24">
+        <path d="M4 6h10M4 12h4M12 12h8M4 18h12" />
+        <circle cx="17" cy="6" r="2" />
+        <circle cx="10" cy="12" r="2" />
+        <circle cx="18" cy="18" r="2" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6L6 18" />
+      </symbol>
+      <symbol id="icon-warning" viewBox="0 0 24 24">
+        <path d="M10.3 3.9L2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+        <path d="M12 9v4.5M12 17h.01" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+      </symbol>
+      <symbol id="icon-shield-check" viewBox="0 0 24 24">
+        <path d="M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z" />
+        <path d="M8.5 12l2.5 2.5 4.5-5" />
+      </symbol>
+      <symbol id="icon-shield-warning" viewBox="0 0 24 24">
+        <path d="M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z" />
+        <path d="M12 8v4.5M12 16h.01" />
+      </symbol>
+      <symbol id="icon-device-mobile" viewBox="0 0 24 24">
+        <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+        <path d="M11 18h2" />
+      </symbol>
+    </svg>
     <main v-if="authGateActive" class="login-shell">
       <section class="login-panel" :class="{ 'password-change-panel': mustChangePassword, 'mfa-panel': mustEnrollMfa || mfaChallenge.active }" aria-labelledby="login-title">
         <div class="login-brand">
@@ -3876,7 +3996,7 @@ const app = createApp({
         </div>
         <section v-else-if="mfaRecoveryCodes.length" class="mfa-recovery-screen">
           <div class="security-callout warning">
-            <i class="ph ph-warning" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-warning"></use></svg>
             <div>
               <strong>Enregistrez ces codes maintenant</strong>
               <p>Ils ne seront plus affichés. Chaque code permet une connexion si votre application d’authentification est indisponible.</p>
@@ -3886,14 +4006,14 @@ const app = createApp({
             <li v-for="code in mfaRecoveryCodes" :key="code"><code>{{ code }}</code></li>
           </ol>
           <div class="mfa-actions">
-            <button class="ghost-button" type="button" @click="copyRecoveryCodes"><i class="ph ph-copy" aria-hidden="true"></i> Copier</button>
-            <button class="ghost-button" type="button" @click="downloadRecoveryCodes"><i class="ph ph-download-simple" aria-hidden="true"></i> Télécharger</button>
+            <button class="ghost-button" type="button" @click="copyRecoveryCodes"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg> Copier</button>
+            <button class="ghost-button" type="button" @click="downloadRecoveryCodes"><svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg> Télécharger</button>
             <button class="primary-button" type="button" @click="acknowledgeRecoveryCodes">J’ai enregistré les codes</button>
           </div>
         </section>
         <section v-else-if="mustEnrollMfa" class="mfa-enrollment">
           <div class="security-callout">
-            <i class="ph ph-shield-check" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-shield-check"></use></svg>
             <div>
               <strong>Protection obligatoire pour les administrateurs</strong>
               <p>Associez ce compte à une application TOTP avant d’accéder aux données comptables.</p>
@@ -3944,7 +4064,7 @@ const app = createApp({
         </section>
         <form v-if="!authFlowPending && !mfaRecoveryCodes.length && !mustEnrollMfa && mfaChallenge.active" class="login-form mfa-challenge-form" @submit.prevent="verifyMfaLogin">
           <div class="security-callout">
-            <i class="ph ph-device-mobile" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-device-mobile"></use></svg>
             <div>
               <strong>Deuxième étape de connexion</strong>
               <p>Saisissez le code de votre application d’authentification ou un code de récupération.</p>
@@ -4083,106 +4203,12 @@ const app = createApp({
       </section>
       <div class="toast-stack" aria-live="polite">
         <div v-for="toast in toasts" :key="toast.id" :class="['toast', toast.type]">
-          {{ toast.message }}
+          <span class="toast-badge" aria-hidden="true"><svg><use :href="toast.type === 'success' ? '#icon-check' : toast.type === 'error' ? '#icon-x' : '#icon-warning'"></use></svg></span>
+          <span>{{ toast.message }}</span>
         </div>
       </div>
     </main>
     <main v-else class="shell">
-      <svg class="icon-sprite" aria-hidden="true" focusable="false">
-        <symbol id="icon-edit" viewBox="0 0 24 24">
-          <path d="M12 20h9" />
-          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-        </symbol>
-        <symbol id="icon-trash" viewBox="0 0 24 24">
-          <path d="M3 6h18" />
-          <path d="M8 6V4h8v2" />
-          <path d="M19 6l-1 14H6L5 6" />
-          <path d="M10 11v5" />
-          <path d="M14 11v5" />
-        </symbol>
-        <symbol id="icon-key" viewBox="0 0 24 24">
-          <circle cx="7.5" cy="14.5" r="3.5" />
-          <path d="M10 12l10-10" />
-          <path d="M15 7l2 2" />
-          <path d="M17 5l2 2" />
-        </symbol>
-        <symbol id="icon-copy" viewBox="0 0 24 24">
-          <rect x="9" y="9" width="11" height="11" rx="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </symbol>
-        <symbol id="icon-user-check" viewBox="0 0 24 24">
-          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M16 11l2 2 4-4" />
-        </symbol>
-        <symbol id="icon-user-x" viewBox="0 0 24 24">
-          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M17 8l5 5" />
-          <path d="M22 8l-5 5" />
-        </symbol>
-        <symbol id="icon-log-out" viewBox="0 0 24 24">
-          <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />
-        </symbol>
-        <symbol id="icon-note" viewBox="0 0 24 24">
-          <path d="M9 18V5l10-2v12" />
-          <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
-          <circle cx="16.5" cy="15" r="2.5" fill="currentColor" />
-        </symbol>
-        <symbol id="icon-lock" viewBox="0 0 24 24">
-          <rect x="5" y="11" width="14" height="10" rx="2" />
-          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-        </symbol>
-        <symbol id="icon-arrow-right" viewBox="0 0 24 24">
-          <path d="M5 12h14M13 6l6 6-6 6" />
-        </symbol>
-        <symbol id="icon-chevron-down" viewBox="0 0 24 24">
-          <path d="M7 10l5 5 5-5" />
-        </symbol>
-        <symbol id="icon-nav-dashboard" viewBox="0 0 24 24">
-          <rect x="3" y="3" width="7" height="9" rx="1.5" />
-          <rect x="14" y="3" width="7" height="5" rx="1.5" />
-          <rect x="14" y="12" width="7" height="9" rx="1.5" />
-          <rect x="3" y="16" width="7" height="5" rx="1.5" />
-        </symbol>
-        <symbol id="icon-nav-attendance" viewBox="0 0 24 24">
-          <rect x="3" y="4" width="18" height="17" rx="2" />
-          <path d="M3 9h18M8 2v4M16 2v4M8.5 15l2.5 2.5 4.5-5" />
-        </symbol>
-        <symbol id="icon-nav-signatures" viewBox="0 0 24 24">
-          <path d="M4 21h16M6 17l10-10 3 3-10 10H6v-3z" />
-        </symbol>
-        <symbol id="icon-nav-people" viewBox="0 0 24 24">
-          <circle cx="9" cy="8" r="3.5" />
-          <path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M18 14.8c2 .7 3.2 2.5 3.5 5.2" />
-        </symbol>
-        <symbol id="icon-nav-slots" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3 2" />
-        </symbol>
-        <symbol id="icon-nav-groups" viewBox="0 0 24 24">
-          <path d="M9 18V5l11-2v13" />
-          <circle cx="6" cy="18" r="3" />
-          <circle cx="17" cy="16" r="3" />
-        </symbol>
-        <symbol id="icon-nav-expenses" viewBox="0 0 24 24">
-          <path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z" />
-          <path d="M9 7h6M9 11h6M9 15h4" />
-        </symbol>
-        <symbol id="icon-nav-billing" viewBox="0 0 24 24">
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-          <path d="M14 2v6h6M8 13h8M8 17h5" />
-        </symbol>
-        <symbol id="icon-nav-data-transfer" viewBox="0 0 24 24">
-          <path d="M7 9l5-5 5 5M12 4v11M5 20h14" />
-        </symbol>
-        <symbol id="icon-nav-settings" viewBox="0 0 24 24">
-          <path d="M4 6h10M4 12h4M12 12h8M4 18h12" />
-          <circle cx="17" cy="6" r="2" />
-          <circle cx="10" cy="12" r="2" />
-          <circle cx="18" cy="18" r="2" />
-        </symbol>
-      </svg>
       <aside class="sidebar">
         <div class="sidebar-brand">
           <span class="sidebar-mark" aria-hidden="true"><svg><use href="#icon-note"></use></svg></span>
@@ -4986,7 +5012,7 @@ const app = createApp({
           <div class="document-workflow-note">
             <strong>1. Prévisualiser et corriger</strong>
             <span>Les PDF restent des brouillons régénérables.</span>
-            <i class="ph ph-arrow-right" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
             <strong>2. Valider définitivement</strong>
             <span>Les documents validés sont ensuite figés.</span>
           </div>
@@ -5334,7 +5360,7 @@ const app = createApp({
                 <span>Codes temporaires compatibles avec les applications TOTP</span>
               </div>
               <span :class="['security-status', twoFactorStatus?.enabled ? 'enabled' : 'disabled']">
-                <i :class="twoFactorStatus?.enabled ? 'ph ph-shield-check' : 'ph ph-shield-warning'" aria-hidden="true"></i>
+                <svg class="icon" aria-hidden="true"><use :href="twoFactorStatus?.enabled ? '#icon-shield-check' : '#icon-shield-warning'"></use></svg>
                 {{ twoFactorStatus?.enabled ? 'Activée' : 'Non activée' }}
               </span>
             </div>
@@ -5356,7 +5382,7 @@ const app = createApp({
                 </div>
               </div>
               <div v-if="isAdministrator" class="security-callout compact">
-                <i class="ph ph-lock-key" aria-hidden="true"></i>
+                <svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg>
                 <div><strong>Protection obligatoire</strong><p>La double authentification ne peut pas être désactivée durablement sur un compte administrateur.</p></div>
               </div>
               <div class="mfa-actions">
@@ -5385,7 +5411,7 @@ const app = createApp({
 
             <template v-else>
               <div class="security-callout optional">
-                <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                <svg class="icon" aria-hidden="true"><use href="#icon-device-mobile"></use></svg>
                 <div>
                   <strong>{{ isAdministrator ? 'Activation requise' : 'Renforcez la sécurité de votre compte' }}</strong>
                   <p>{{ isAdministrator ? 'Terminez l’enrôlement pour poursuivre.' : 'Cette protection est facultative pour un compte non administrateur et fortement recommandée.' }}</p>
@@ -5896,7 +5922,8 @@ const app = createApp({
         </section>
         <div class="toast-stack" aria-live="polite">
           <div v-for="toast in toasts" :key="toast.id" :class="['toast', toast.type]">
-            {{ toast.message }}
+            <span class="toast-badge" aria-hidden="true"><svg><use :href="toast.type === 'success' ? '#icon-check' : toast.type === 'error' ? '#icon-x' : '#icon-warning'"></use></svg></span>
+            <span>{{ toast.message }}</span>
           </div>
         </div>
       </section>
