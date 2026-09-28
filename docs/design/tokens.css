@@ -23,7 +23,8 @@
   --paper-deep: #EDE6D8;     /* barre latérale, barre d'onglets mobile */
   --card: #FFFCF6;           /* cartes, panneaux, tableaux */
   --card-alt: #F8F4EC;       /* en-têtes de groupe, pieds de tableau */
-  --track: #EAE3D5;          /* fond des contrôles segmentés, rails de progression */
+  --track: #EAE3D5;          /* fond des contrôles segmentés (posés sur le papier) */
+  --rail: #EAE3D5;           /* rails de progression, pastilles neutres, posés sur une carte */
 
   /* Filets */
   --line: #DCD3C2;           /* bordures de cartes, séparateurs */
@@ -44,6 +45,7 @@
   --petrol: #0B5563;
   --petrol-deep: #0B5563;    /* fond de la tuile « Subvention calculée » */
   --on-petrol: #FFFCF6;      /* texte posé sur --petrol */
+  --on-petrol-deep: #FFFCF6; /* texte posé sur --petrol-deep */
   --on-petrol-muted: #CFE3E0;
   --petrol-tint: #DCEBE9;
   --petrol-tint-ink: #083C46;
@@ -120,6 +122,7 @@
     --card: #16252A;
     --card-alt: #1B2C31;
     --track: #16252A;
+    --rail: #22333A;
     --line: #2A3B40;
     --line-soft: #22333A;
     --line-strong: #93A3A5;
@@ -132,6 +135,7 @@
     --petrol: #57A8AE;
     --petrol-deep: #0E4550;
     --on-petrol: #0B1417;
+    --on-petrol-deep: #EDE6D8;
     --on-petrol-muted: #A9CFCB;
     --petrol-tint: #173A40;
     --petrol-tint-ink: #9ED6D4;
@@ -172,6 +176,7 @@
   --card: #16252A;
   --card-alt: #1B2C31;
   --track: #16252A;
+  --rail: #22333A;
   --line: #2A3B40;
   --line-soft: #22333A;
   --line-strong: #93A3A5;
@@ -184,6 +189,7 @@
   --petrol: #57A8AE;
   --petrol-deep: #0E4550;
   --on-petrol: #0B1417;
+  --on-petrol-deep: #EDE6D8;
   --on-petrol-muted: #A9CFCB;
   --petrol-tint: #173A40;
   --petrol-tint-ink: #9ED6D4;

@@ -33,6 +33,7 @@ Toujours passer par les variables de `tokens.css`, jamais de couleur en dur dans
 | Carte | `--card` | `#FFFCF6` | `#16252A` |
 | En-tête de carte | `--card-alt` | `#F8F4EC` | `#1B2C31` |
 | Filet | `--line` | `#DCD3C2` | `#2A3B40` |
+| Rail (sur une carte) | `--rail` | `#EAE3D5` | `#22333A` |
 | Texte | `--ink` | `#13262C` | `#EDE6D8` |
 | Texte secondaire | `--ink-muted` | `#56676C` | `#93A3A5` |
 | Action · présent | `--petrol` | `#0B5563` | `#57A8AE` |
@@ -114,7 +115,7 @@ Statut de document (`DRAFT` / `GENERATED` / `SENT` / `CANCELLED`) :
 - Brouillon : contour pointillé 1.5 px `--ink-faint`, texte `--ink-soft`
 - Générée : `--petrol-tint` / `--petrol-tint-ink`
 - Envoyée : `--petrol` / `--on-petrol`
-- Annulée : fond `--track`, texte `--ink-muted` barré
+- Annulée : fond `--rail`, texte `--ink-muted` barré
 
 ### Symboles de présence
 
@@ -135,9 +136,9 @@ Conteneur pilule `--track` + bordure `--line`, padding 4 px. Option sélectionn�
 
 ### Tuile KPI
 
-Carte `--card`, rayon 16, padding 20 × 22. Libellé 14/600 `--ink-muted`, montant display 40 px, sous-titre 13 px. À droite, **trois mini-barres** (8 px de large, hauteur max 30 px) représentant T1, T2 et T3 en proportion ; les trimestres terminés en `--petrol`, le trimestre en cours en `--brass-bright`. Elles remplacent les images `kpi-meter-orange.png` et `kpi-waveform-green.png`.
+Carte `--card`, rayon 16, padding 20 × 22. Libellé 14/600 `--ink-muted`, montant display 40 px, sous-titre 13 px. À droite, **trois mini-barres** (8 px de large, hauteur max 30 px) représentant T1, T2 et T3 en proportion ; les trimestres terminés en `--petrol`, le trimestre en cours en `--brass-bright`. Elles remplacent les images `kpi-meter-orange.png` et `kpi-waveform-green.png`. Un trimestre à venir a sa mini-barre en `--line`.
 
-Variante « Subvention calculée » : fond `--petrol-deep`, texte `--on-petrol` en clair / `--ink` en nuit, libellés `--on-petrol-muted`.
+Variante « Subvention calculée » : fond `--petrol-deep`, texte `--on-petrol-deep` (clair en clair comme en nuit), libellés `--on-petrol-muted`.
 
 ### Graphique « Évolution par trimestre »
 
@@ -145,7 +146,7 @@ Variante « Subvention calculée » : fond `--petrol-deep`, texte `--on-petrol` 
 - **Cinq lignes horizontales** (la portée) : 4 filets `--line` + ligne 0 `--line-strong`. Axe à gauche en mono 11 px, max arrondi (ex. 5 000 / 3 750 / 2 500 / 1 250 / 0).
 - Valeur au-dessus de chaque barre en mono 10.5 px, arrondie à l'euro.
 - Le trimestre en cours a un fond laiton très léger derrière son groupe.
-- Sous chaque groupe : nom du trimestre (display 24), semaines (mono 12), pastille « Terminé » (`--track`) ou « En cours » (`--brass-tint`).
+- Sous chaque groupe : nom du trimestre (display 24), semaines (mono 12), pastille « Terminé » (`--rail`), « En cours » (`--brass-tint`) ou « À venir » (contour `--line`).
 - Légende en haut à droite, carrés 10 px.
 
 ### Répartition des sorties
@@ -158,7 +159,7 @@ Fond `--brass-tint`, texte `--brass-tint-ink`, rayon 12. Réservé aux actions e
 
 ### Tableaux
 
-En-tête 12/700 majuscules `--ink-faint`, séparé du corps par un filet `--line-strong`. Lignes séparées par `--line`, padding vertical 14 px. Montants alignés à droite. « À facturer » en `--brass-ink` gras. Avancement : rail 6 px `--track`, remplissage `--petrol`.
+En-tête 12/700 majuscules `--ink-faint`, séparé du corps par un filet `--line-strong`. Lignes séparées par `--line`, padding vertical 14 px. Montants alignés à droite. « À facturer » en `--brass-ink` gras. Avancement : rail 6 px `--rail`, remplissage `--petrol`.
 
 ### Toast
 

@@ -778,6 +778,7 @@ const app = createApp({
           expenses,
           selected: term.id === selectedTermId.value,
           automatic: term.id === automaticTerm.value?.id,
+          phase: dashboardTermPhase(term),
         };
       }));
 
@@ -788,10 +789,46 @@ const app = createApp({
       subsidy: dashboardTerms.value.reduce((sum, term) => sum + term.subsidy, 0),
     }));
 
-    const dashboardChartMaximum = computed(() => Math.max(
-      1,
-      ...dashboardTerms.value.flatMap((term) => [term.studentBilling, term.teacherDue, term.subsidy, term.expenses]),
-    ));
+    // Échelle « ronde » de la portée : cinq lignes (4 intervalles), ex. 5 000 / 3 750 / 2 500 / 1 250 / 0.
+    const dashboardChartScale = computed(() => {
+      const maximum = Math.max(
+        1,
+        ...dashboardTerms.value.flatMap((term) => [term.studentBilling, term.teacherDue, term.subsidy, term.expenses]),
+      );
+      const rawStep = maximum / 4;
+      const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+      const step = [1, 1.25, 2, 2.5, 5, 10].map((factor) => factor * magnitude).find((candidate) => candidate >= rawStep);
+      return { max: step * 4, ticks: [4, 3, 2, 1, 0].map((index) => index * step) };
+    });
+
+    const DASHBOARD_SERIES = [
+      { key: "studentBilling", label: "Facturation élèves", className: "students", fromBilling: true },
+      { key: "teacherDue", label: "Prestataires", className: "teachers", fromBilling: true },
+      { key: "subsidy", label: "Subvention", className: "subsidy", fromBilling: true },
+      { key: "expenses", label: "Dépenses", className: "expenses", fromBilling: false },
+    ];
+
+    const dashboardChartSummary = computed(() => dashboardTerms.value.map((term) => (
+      `${term.name} : ${DASHBOARD_SERIES.map((series) => `${series.label.toLowerCase()} ${series.fromBilling ? billingMoney(term[series.key]) : money(term[series.key])}`).join(", ")}`
+    )).join(" ; "));
+
+    const dashboardKpiTiles = computed(() => [
+      { key: "studentBilling", label: "Facturation élèves", detail: "Cours + cotisations", value: billingMoney(annualDashboardTotals.value.studentBilling) },
+      { key: "teacherDue", label: "Coût prestataires", detail: "Cours individuels + ateliers", value: billingMoney(annualDashboardTotals.value.teacherDue) },
+      { key: "expenses", label: "Dépenses", detail: "Charges de l'année", value: money(annualDashboardTotals.value.expenses) },
+      { key: "subsidy", label: "Subvention calculée", detail: "Dû − 50 % cours − cotisations", value: billingMoney(annualDashboardTotals.value.subsidy), emphasis: true },
+    ].map((tile) => {
+      const maximum = Math.max(0, ...dashboardTerms.value.map((term) => term[tile.key]));
+      return {
+        ...tile,
+        available: tile.key === "expenses" || billingStatus.value === "ready",
+        bars: dashboardTerms.value.map((term) => ({
+          id: term.id,
+          phase: term.phase,
+          height: maximum > 0 ? Math.max(3, (term[tile.key] / maximum) * 30) : 3,
+        })),
+      };
+    }));
 
     const dashboardOutflowTotal = computed(() => (
       annualDashboardTotals.value.subsidy + annualDashboardTotals.value.expenses
@@ -802,10 +839,6 @@ const app = createApp({
         ? (annualDashboardTotals.value.subsidy / dashboardOutflowTotal.value) * 100
         : 0
     ));
-
-    const dashboardDonutStyle = computed(() => ({
-      background: `conic-gradient(var(--series-subsidy) 0 ${dashboardSubsidyShare.value}%, var(--series-expenses) ${dashboardSubsidyShare.value}% 100%)`,
-    }));
 
     const dashboardTeacherActivity = computed(() => (
       billingSummariesByTerm.value[selectedTermId.value]?.teacherInvoiceRequests || []
@@ -833,17 +866,28 @@ const app = createApp({
     }), { hours: 0, issued: 0, remaining: 0 }));
 
     function dashboardBarHeight(value) {
-      if (!value) return "0%";
-      return `${Math.max(5, (Number(value) / dashboardChartMaximum.value) * 100)}%`;
+      if (!value) return "0px";
+      return `${Math.max(3, (Number(value) / dashboardChartScale.value.max) * 200).toFixed(1)}px`;
     }
 
-    function dashboardTermStatus(term) {
-      if (term.automatic) return "Actuel";
-      if (Number(state.settings.year) < new Date().getFullYear()) return "Réalisé";
-      if (Number(state.settings.year) > new Date().getFullYear()) return "À venir";
-      const currentWeek = isoWeekNumber(new Date());
-      if (term.startWeek > currentWeek) return "À venir";
-      return "Réalisé";
+    function dashboardTermPhase(term) {
+      const year = Number(state.settings.year);
+      const now = new Date();
+      if (year < now.getFullYear()) return "done";
+      if (year > now.getFullYear()) return "upcoming";
+      const currentWeek = isoWeekNumber(now);
+      if (currentWeek < term.startWeek) return "upcoming";
+      return currentWeek > term.endWeek ? "done" : "current";
+    }
+
+    const DASHBOARD_PHASE_LABELS = { done: "Terminé", current: "En cours", upcoming: "À venir" };
+
+    function dashboardSeriesValue(term, series) {
+      return series.fromBilling && billingStatus.value !== "ready" ? null : term[series.key];
+    }
+
+    function wholeEuros(value) {
+      return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(Number(value) || 0));
     }
 
     const expenseRows = computed(() => [...state.expenses].sort((a, b) => (
@@ -939,7 +983,7 @@ const app = createApp({
     const mustChangePassword = computed(() => Boolean(currentUser.value?.mustChangePassword));
     const pageTitle = computed(() => {
       const labels = {
-        dashboard: `Vue annuelle ${state.settings.year}`,
+        dashboard: `Saison ${state.settings.year}`,
         expenses: `Dépenses ${state.settings.year}`,
         account: "Compte utilisateur",
         people: "Musiciens",
@@ -3530,11 +3574,16 @@ const app = createApp({
       annualDashboardTotals,
       dashboardOutflowTotal,
       dashboardSubsidyShare,
-      dashboardDonutStyle,
+      dashboardChartScale,
+      dashboardChartSummary,
+      dashboardKpiTiles,
+      DASHBOARD_SERIES,
+      DASHBOARD_PHASE_LABELS,
       dashboardTeacherActivity,
       dashboardTeacherActivityTotals,
       dashboardBarHeight,
-      dashboardTermStatus,
+      wholeEuros,
+      dashboardSeriesValue,
       loadBillingSummary,
       copyAnnualConfiguration,
       updateYearStatus,
@@ -3967,6 +4016,9 @@ const app = createApp({
           <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
           <circle cx="16.5" cy="15" r="2.5" fill="currentColor" />
         </symbol>
+        <symbol id="icon-arrow-right" viewBox="0 0 24 24">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </symbol>
         <symbol id="icon-chevron-down" viewBox="0 0 24 24">
           <path d="M7 10l5 5 5-5" />
         </symbol>
@@ -4077,13 +4129,26 @@ const app = createApp({
 
       <section class="content">
         <header class="topbar">
-          <div>
-            <p v-if="activeView !== 'dashboard'" class="eyebrow">Comptabilité activité musique</p>
+          <div class="topbar-title">
+            <p v-if="activeView === 'dashboard'" class="eyebrow">Situation consolidée au {{ dashboardDateLabel }}</p>
+            <p v-else class="eyebrow">Comptabilité activité musique</p>
             <h1>{{ pageTitle }}</h1>
-            <p v-if="activeView === 'dashboard'" class="dashboard-date">Situation consolidée au {{ dashboardDateLabel }}</p>
           </div>
           <div class="topbar-actions">
-            <div v-if="viewUsesTerm" class="term-control">
+            <div v-if="activeView === 'dashboard' && dashboardTerms.length" class="segmented" role="group" aria-label="Trimestre">
+              <button
+                v-for="term in dashboardTerms"
+                :key="term.id"
+                type="button"
+                :aria-pressed="term.selected ? 'true' : 'false'"
+                @click="selectedTermId = term.id"
+              >
+                {{ term.name }}
+                <span v-if="term.phase === 'current'" class="segmented-dot" aria-hidden="true"></span>
+                <span v-if="term.phase === 'current'" class="visually-hidden">(en cours)</span>
+              </button>
+            </div>
+            <div v-else-if="viewUsesTerm" class="term-control">
               <label for="term">Période</label>
               <select id="term" v-model="selectedTermId">
                 <option v-for="term in state.settings.terms" :key="term.id" :value="term.id">
@@ -4093,164 +4158,147 @@ const app = createApp({
             </div>
             <button
               v-if="activeView === 'dashboard' && canAny(['BILLING_READ', 'BILLING_PRINT'])"
+              type="button"
               class="primary-button billing-review-button"
               @click="openBilling('providers')"
             >
-              Préparer la facturation
+              Préparer la facturation {{ selectedTerm?.name }}
+              <svg aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
             </button>
           </div>
         </header>
 
-        <section v-if="activeView === 'dashboard' && !mustChangePassword" class="view-stack">
+        <section v-if="activeView === 'dashboard' && !mustChangePassword" class="view-stack dashboard-view">
           <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error' }" role="status">
             <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Connectez le backend pour charger les montants comptables.') }}</span>
             <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
           </div>
-          <div class="annual-kpi-grid">
-            <article class="annual-kpi">
-              <span>Facturation élèves</span>
-              <strong>{{ billingMoney(annualDashboardTotals.studentBilling) }}</strong>
-              <small>Cours + cotisations, cumul annuel</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-            <article class="annual-kpi">
-              <span>Coût prestataires</span>
-              <strong>{{ billingMoney(annualDashboardTotals.teacherDue) }}</strong>
-              <small>Cours individuels + ateliers</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-            <article class="annual-kpi">
-              <span>Dépenses</span>
-              <strong>{{ money(annualDashboardTotals.expenses) }}</strong>
-              <small>Charges enregistrées sur l’année</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-            <article class="annual-kpi emphasis">
-              <span>Subvention calculée</span>
-              <strong>{{ billingMoney(annualDashboardTotals.subsidy) }}</strong>
-              <small>Dû prestataires − 50 % cours − cotisations</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-          </div>
 
-          <div class="annual-chart-grid">
-            <section class="panel annual-bars-panel">
-              <div class="annual-panel-heading">
+          <section class="kpi-tiles" aria-label="Totaux annuels">
+            <article v-for="tile in dashboardKpiTiles" :key="tile.key" :class="['kpi-tile', { emphasis: tile.emphasis }]">
+              <div class="kpi-tile-copy">
+                <span>{{ tile.label }}</span>
+                <strong>{{ tile.value }}</strong>
+                <small>{{ tile.detail }}</small>
+              </div>
+              <div v-if="tile.available" class="kpi-mini-bars" aria-hidden="true">
+                <span v-for="bar in tile.bars" :key="bar.id" :class="bar.phase" :style="{ height: bar.height + 'px' }"></span>
+              </div>
+            </article>
+          </section>
+
+          <div class="dashboard-grid">
+            <section class="panel chart-panel" aria-labelledby="chart-title">
+              <div class="chart-heading">
                 <div>
-                  <h2>Évolution par trimestre</h2>
-                  <span>Comparaison des principaux flux comptables</span>
+                  <h2 id="chart-title">Évolution par trimestre</h2>
+                  <span>Chaque trimestre, un mouvement</span>
                 </div>
-                <div class="chart-legend" aria-label="Légende du graphique">
-                  <span><i class="students"></i>Facturation élèves</span>
-                  <span><i class="teachers"></i>Coût prestataires</span>
-                  <span><i class="subsidy"></i>Subvention calculée</span>
-                  <span><i class="expenses"></i>Dépenses</span>
+                <div class="chart-legend" aria-hidden="true">
+                  <span v-for="series in DASHBOARD_SERIES" :key="series.key"><i :class="series.className"></i>{{ series.label }}</span>
                 </div>
               </div>
-              <div class="dashboard-bars" role="img" aria-label="Comparaison des montants par trimestre">
-                <div v-for="term in dashboardTerms" :key="term.id" class="dashboard-bar-group" :class="{ current: term.automatic }">
-                  <div class="dashboard-bar-stage">
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.studentBilling) }}</small>
-                      <span class="dashboard-bar students" :style="{ height: dashboardBarHeight(term.studentBilling) }" :title="'Facturation élèves : ' + money(term.studentBilling)"></span>
-                    </span>
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.teacherDue) }}</small>
-                      <span class="dashboard-bar teachers" :style="{ height: dashboardBarHeight(term.teacherDue) }" :title="'Coût prestataires : ' + money(term.teacherDue)"></span>
-                    </span>
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.subsidy) }}</small>
-                      <span class="dashboard-bar subsidy" :style="{ height: dashboardBarHeight(term.subsidy) }" :title="'Subvention calculée : ' + money(term.subsidy)"></span>
-                    </span>
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.expenses) }}</small>
-                      <span class="dashboard-bar expenses" :style="{ height: dashboardBarHeight(term.expenses) }" :title="'Dépenses : ' + money(term.expenses)"></span>
-                    </span>
+              <div class="staff-chart" role="img" :aria-label="'Montants par trimestre. ' + dashboardChartSummary">
+                <div class="staff-axis">
+                  <span v-for="(tick, index) in dashboardChartScale.ticks" :key="tick" :style="{ '--i': index }">{{ wholeEuros(tick) }}</span>
+                </div>
+                <div class="staff-plot">
+                  <div class="staff-lines"><i v-for="line in 5" :key="line"></i></div>
+                  <div class="staff-groups" :style="{ gridTemplateColumns: 'repeat(' + dashboardTerms.length + ', minmax(0, 1fr))' }">
+                    <div v-for="term in dashboardTerms" :key="term.id" :class="['staff-group', { current: term.phase === 'current' }]">
+                      <div v-for="series in DASHBOARD_SERIES" :key="series.key" class="staff-bar">
+                        <span class="staff-value">{{ dashboardSeriesValue(term, series) === null ? '' : wholeEuros(dashboardSeriesValue(term, series)) }}</span>
+                        <span :class="['staff-fill', series.className]" :style="{ height: dashboardBarHeight(dashboardSeriesValue(term, series)) }"></span>
+                      </div>
+                    </div>
                   </div>
+                </div>
+              </div>
+              <div class="staff-terms" :style="{ '--terms': dashboardTerms.length, gridTemplateColumns: '52px repeat(' + dashboardTerms.length + ', minmax(0, 1fr))' }">
+                <span></span>
+                <div v-for="term in dashboardTerms" :key="term.id" class="staff-term">
                   <strong>{{ term.name }}</strong>
-                  <small>Semaines {{ term.startWeek }} à {{ term.endWeek }}</small>
-                  <em :class="{ current: term.automatic }">{{ dashboardTermStatus(term) }}</em>
+                  <span>S{{ term.startWeek }} → S{{ term.endWeek }}</span>
+                  <em :class="term.phase">{{ DASHBOARD_PHASE_LABELS[term.phase] }}</em>
                 </div>
               </div>
             </section>
 
-            <section class="panel annual-donut-panel">
-              <div class="annual-panel-heading">
-                <div>
-                  <h2>Répartition des sorties</h2>
-                  <span>Cumul annuel à ce jour</span>
-                </div>
+            <section class="panel outflow-panel" aria-labelledby="outflow-title">
+              <div>
+                <h2 id="outflow-title">Répartition des sorties</h2>
+                <span class="panel-subtitle">Cumul annuel à ce jour</span>
               </div>
-              <div class="dashboard-donut" :style="dashboardDonutStyle" role="img" :aria-label="'Subvention calculée ' + dashboardSubsidyShare.toFixed(0) + ' %, dépenses ' + (100 - dashboardSubsidyShare).toFixed(0) + ' %'">
-                <div>
-                  <strong>{{ money(dashboardOutflowTotal) }}</strong>
-                  <span>Total sorties</span>
-                </div>
+              <div class="outflow-total">
+                <strong>{{ billingMoney(dashboardOutflowTotal) }}</strong>
+                <span>Total des sorties</span>
               </div>
-              <div class="donut-legend">
-                <div><i class="subsidy"></i><span>Subvention calculée<strong>{{ billingMoney(annualDashboardTotals.subsidy) }} · {{ dashboardSubsidyShare.toFixed(0) }} %</strong></span></div>
-                <div><i class="expenses"></i><span>Dépenses<strong>{{ money(annualDashboardTotals.expenses) }} · {{ (100 - dashboardSubsidyShare).toFixed(0) }} %</strong></span></div>
+              <div v-if="billingStatus === 'ready'" class="outflow-bar" role="img" :aria-label="'Subvention ' + dashboardSubsidyShare.toFixed(0) + ' %, dépenses ' + (dashboardOutflowTotal > 0 ? 100 - dashboardSubsidyShare : 0).toFixed(0) + ' %'">
+                <span v-if="dashboardSubsidyShare > 0" class="subsidy" :style="{ width: dashboardSubsidyShare + '%' }"></span>
+                <span v-if="dashboardOutflowTotal > 0 && dashboardSubsidyShare < 100" class="expenses" :style="{ width: (100 - dashboardSubsidyShare) + '%' }"></span>
+              </div>
+              <div class="outflow-list">
+                <div>
+                  <span><i class="subsidy"></i>Subvention calculée</span>
+                  <span><strong>{{ billingMoney(annualDashboardTotals.subsidy) }}</strong><span v-if="billingStatus === 'ready'" class="muted"> · {{ dashboardSubsidyShare.toFixed(0) }} %</span></span>
+                </div>
+                <div>
+                  <span><i class="expenses"></i>Dépenses</span>
+                  <span><strong>{{ money(annualDashboardTotals.expenses) }}</strong><span v-if="billingStatus === 'ready'" class="muted"> · {{ (dashboardOutflowTotal > 0 ? 100 - dashboardSubsidyShare : 0).toFixed(0) }} %</span></span>
+                </div>
               </div>
             </section>
-          </div>
-
-          <div class="term-summary-grid" aria-label="Indicateurs par trimestre">
-            <button
-              v-for="term in dashboardTerms"
-              :key="term.id"
-              type="button"
-              class="term-summary-card"
-              :class="{ selected: term.selected }"
-              @click="selectedTermId = term.id"
-            >
-              <span class="term-summary-heading">
-                <span><strong>{{ term.name }}</strong><small>Semaines {{ term.startWeek }} à {{ term.endWeek }}</small></span>
-                <em :class="{ current: term.automatic }">{{ dashboardTermStatus(term) }}</em>
-              </span>
-              <span class="term-summary-values">
-                <span>Facturation<strong>{{ billingMoney(term.studentBilling) }}</strong></span>
-                <span>Prestataires<strong>{{ billingMoney(term.teacherDue) }}</strong></span>
-                <span>Dépenses<strong>{{ money(term.expenses) }}</strong></span>
-                <span>Subvention<strong>{{ billingMoney(term.subsidy) }}</strong></span>
-              </span>
-            </button>
           </div>
 
           <section class="panel provider-activity-panel" aria-labelledby="provider-activity-title">
             <div class="provider-activity-heading">
               <div>
-                <span class="section-kicker">{{ selectedTerm.name }}</span>
+                <span class="section-kicker">{{ selectedTerm?.name }} · semaines {{ selectedTerm?.startWeek }} à {{ selectedTerm?.endWeek }}</span>
                 <h2 id="provider-activity-title">Activité des prestataires</h2>
-                <p>Heures réalisées et avancement de la facturation pour la période sélectionnée.</p>
               </div>
-              <div class="provider-activity-totals" aria-label="Totaux de la période">
-                <span><small>Heures données</small><strong>{{ hoursLabel(dashboardTeacherActivityTotals.hours) }}</strong></span>
-                <span><small>Déjà facturé</small><strong>{{ billingMoney(dashboardTeacherActivityTotals.issued) }}</strong></span>
-                <span class="remaining"><small>À facturer</small><strong>{{ billingMoney(dashboardTeacherActivityTotals.remaining) }}</strong></span>
-              </div>
+              <dl class="provider-activity-totals">
+                <div><dt>Heures données</dt><dd>{{ hoursLabel(dashboardTeacherActivityTotals.hours) }}</dd></div>
+                <div><dt>Déjà facturé</dt><dd>{{ billingMoney(dashboardTeacherActivityTotals.issued) }}</dd></div>
+                <div class="remaining"><dt>À facturer</dt><dd>{{ billingMoney(dashboardTeacherActivityTotals.remaining) }}</dd></div>
+              </dl>
             </div>
 
-            <div v-if="dashboardTeacherActivity.length" class="provider-activity-list">
-              <div class="provider-activity-columns" aria-hidden="true">
-                <span>Prestataire</span><span>Heures données</span><span>Déjà facturé</span><span>À facturer</span><span>Avancement</span><span></span>
-              </div>
-              <article v-for="activity in dashboardTeacherActivity" :key="activity.teacherId" class="provider-activity-row">
-                <div class="provider-identity">
-                  <span class="provider-avatar" aria-hidden="true">{{ activity.teacher.firstName?.charAt(0) }}{{ activity.teacher.lastName?.charAt(0) }}</span>
-                  <span><strong>{{ fullName(activity.teacher) }}</strong><small>{{ activity.teacher.instrument || 'Prestataire' }}</small></span>
-                </div>
-                <div class="provider-metric"><small>Heures données</small><strong>{{ hoursLabel(activity.totalHours) }}</strong></div>
-                <div class="provider-metric"><small>Déjà facturé</small><strong>{{ billingMoney(activity.issuedAmount) }}</strong></div>
-                <div class="provider-metric remaining"><small>À facturer</small><strong>{{ billingMoney(activity.remainingAmount) }}</strong></div>
-                <div class="provider-progress">
-                  <span><small>Avancement</small><strong>{{ activity.issuedPercent.toFixed(0) }} %</strong></span>
-                  <span class="provider-progress-track" role="progressbar" :aria-label="'Facturation de ' + fullName(activity.teacher)" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="activity.issuedPercent.toFixed(0)">
-                    <i class="issued" :style="{ width: activity.issuedPercent + '%' }"></i>
-                  </span>
-                </div>
-                <button v-if="canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="provider-billing-link" @click="openBilling('providers')">Facturation</button>
-              </article>
-            </div>
+            <table v-if="dashboardTeacherActivity.length" class="provider-table">
+              <thead>
+                <tr>
+                  <th scope="col">Prestataire</th>
+                  <th scope="col" class="num">Heures</th>
+                  <th scope="col" class="num">Déjà facturé</th>
+                  <th scope="col" class="num">À facturer</th>
+                  <th scope="col" class="progress-col">Avancement</th>
+                  <th scope="col"><span class="visually-hidden">Action</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(activity, index) in dashboardTeacherActivity" :key="activity.teacherId">
+                  <td data-label="Prestataire">
+                    <span class="provider-identity">
+                      <span :class="['provider-avatar', { alt: index % 2 === 1 }]" aria-hidden="true">{{ activity.teacher.firstName?.charAt(0) }}{{ activity.teacher.lastName?.charAt(0) }}</span>
+                      <span><strong>{{ fullName(activity.teacher) }}</strong><small>{{ activity.teacher.instrument || 'Prestataire' }}</small></span>
+                    </span>
+                  </td>
+                  <td class="num" data-label="Heures">{{ hoursLabel(activity.totalHours) }}</td>
+                  <td class="num" data-label="Déjà facturé">{{ billingMoney(activity.issuedAmount) }}</td>
+                  <td class="num remaining" data-label="À facturer">{{ billingMoney(activity.remainingAmount) }}</td>
+                  <td data-label="Avancement">
+                    <span class="provider-progress">
+                      <span class="provider-progress-track" role="progressbar" :aria-label="'Facturation de ' + fullName(activity.teacher)" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="activity.issuedPercent.toFixed(0)">
+                        <i :style="{ width: activity.issuedPercent + '%' }"></i>
+                      </span>
+                      <strong>{{ activity.issuedPercent.toFixed(0) }} %</strong>
+                    </span>
+                  </td>
+                  <td class="action">
+                    <button v-if="canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="link-button" @click="openBilling('providers')">Facturer</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
             <div v-else class="provider-activity-empty">
               <strong>Aucune heure enregistrée</strong>
               <span>Les heures réalisées par les prestataires apparaîtront ici.</span>
@@ -4722,20 +4770,22 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'expenses' && !mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" class="view-stack">
-          <div class="kpi-grid expense-kpi-grid">
-            <article class="kpi">
-              <span>Total annuel</span>
-              <strong>{{ money(totals.annualExpenses) }}</strong>
-              <small>{{ state.settings.year }}</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
+          <section class="kpi-tiles expense-kpi-tiles" aria-label="Totaux des dépenses">
+            <article class="kpi-tile">
+              <div class="kpi-tile-copy">
+                <span>Total annuel</span>
+                <strong>{{ money(totals.annualExpenses) }}</strong>
+                <small>{{ state.settings.year }}</small>
+              </div>
             </article>
-            <article v-for="category in expenseTotalsByCategory" :key="category.value" class="kpi">
-              <span>{{ category.label }}</span>
-              <strong>{{ money(category.total) }}</strong>
-              <small>Dépenses saisies</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
+            <article v-for="category in expenseTotalsByCategory" :key="category.value" class="kpi-tile">
+              <div class="kpi-tile-copy">
+                <span>{{ category.label }}</span>
+                <strong>{{ money(category.total) }}</strong>
+                <small>Dépenses saisies</small>
+              </div>
             </article>
-          </div>
+          </section>
 
           <section v-if="can('EXPENSES_WRITE')" class="panel">
             <div class="panel-head">
