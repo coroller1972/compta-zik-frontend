@@ -5721,8 +5721,8 @@ const app = createApp({
         <section v-if="activeView === 'settings' && !mustChangePassword && canAccessSettings" class="view-stack">
           <section v-if="can('CONFIG_FINANCIALS')" class="panel lifecycle-panel">
             <div>
-              <span class="eyebrow">Cycle comptable {{ state.settings.year }}</span>
-              <h2>{{ yearStatusLabel }}</h2>
+              <span class="eyebrow">Cycle comptable</span>
+              <h2 class="lifecycle-title">Saison {{ state.settings.year }} <span :class="['year-pill', yearStatus.toLowerCase()]">{{ yearStatusLabel }}</span></h2>
               <p v-if="yearStatus === 'OPEN'" class="muted">Configuration, présences, dépenses et documents modifiables.</p>
               <p v-else-if="yearStatus === 'REVIEWED'" class="muted">Configuration verrouillée ; présences, dépenses et émission encore disponibles.</p>
               <p v-else class="muted">Année définitivement clôturée ; toutes les données annuelles sont en lecture seule.</p>
@@ -5856,7 +5856,7 @@ const app = createApp({
             </div>
             <div class="term-grid">
               <article v-for="term in state.settings.terms" :key="term.id">
-                <strong>{{ term.name }}</strong>
+                <strong class="term-grid-name">{{ term.name }}</strong>
                 <label>Début <input type="number" v-model.number="term.startWeek" min="1" max="53" /></label>
                 <label>Fin <input type="number" v-model.number="term.endWeek" min="1" max="53" /></label>
               </article>
