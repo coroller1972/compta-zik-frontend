@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Émargement mobile nuit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=Instrument+Serif:ital@0;1&amp;display=swap">
+<style>
+body{margin:0;font-family:"Hanken Grotesk",system-ui,sans-serif;color:#EDE6D8;background:#0F1A1E;font-variant-numeric:tabular-nums}
+a{color:#7CC4C6}a:hover{color:#A9DCDC}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0F1A1E; color: #EDE6D8; font-family: 'Hanken Grotesk', system-ui, sans-serif; display: flex; flex-direction: column">
+
+  <header style="display: flex; justify-content: space-between; align-items: center; padding: 18px 20px 10px">
+    <span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 26px; line-height: 1">Compta <em style="color: #E0B45A">Zik</em></span>
+    <span style="width: 36px; height: 36px; border-radius: 50%; background: #D9A23A; color: #0F1A1E; display: grid; place-items: center; font-weight: 800; font-size: 13px">FC</span>
+  </header>
+
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 12px">
+    <button type="button" aria-label="Semaine précédente" style="width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; color: #EDE6D8">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg>
+    </button>
+    <span style="display: flex; flex-direction: column; align-items: center; gap: 2px">
+      <strong style="font-size: 16px">Semaine 39</strong>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #93A3A5">21 → 27 septembre · T3</span>
+    </span>
+    <button type="button" aria-label="Semaine suivante" style="width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; color: #EDE6D8">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+    </button>
+  </div>
+
+  <div role="tablist" aria-label="Jour" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 8px 16px 14px">
+    <button type="button" role="tab" style="height: 56px; border: 1px solid #2A3B40; border-radius: 12px; background: transparent; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #93A3A5"><span style="font-size: 12px; font-weight: 600">Lun</span><strong style="font-size: 16px">21</strong></button>
+    <button type="button" role="tab" aria-selected="true" style="height: 56px; border: 0; border-radius: 12px; background: #EDE6D8; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #0F1A1E"><span style="font-size: 12px; font-weight: 600; color: #3A4B50">Mar</span><strong style="font-size: 16px">22</strong></button>
+    <button type="button" role="tab" style="height: 56px; border: 1px solid #2A3B40; border-radius: 12px; background: #16252A; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #BFC8C6"><span style="font-size: 12px; font-weight: 600">Mer</span><strong style="font-size: 16px">23</strong></button>
+    <button type="button" role="tab" style="height: 56px; border: 1px solid #2A3B40; border-radius: 12px; background: #16252A; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #BFC8C6"><span style="font-size: 12px; font-weight: 600">Jeu</span><strong style="font-size: 16px">24</strong></button>
+    <button type="button" role="tab" style="height: 56px; border: 1px solid #2A3B40; border-radius: 12px; background: #16252A; font: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #BFC8C6"><span style="font-size: 12px; font-weight: 600">Ven</span><strong style="font-size: 16px">25</strong></button>
+  </div>
+
+  <div style="padding: 0 20px 12px; display: flex; justify-content: space-between; align-items: baseline">
+    <h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 34px; line-height: 1">Mardi 22</h1>
+    <span style="font-size: 13px; color: #93A3A5">3 séances</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 10px; padding: 0 16px; flex-grow: 1">
+    <article style="background: #16252A; border: 1px solid #2A3B40; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #93A3A5">11:30</span>
+        <span style="display: flex; flex-direction: column"><strong style="font-size: 16px">Léa Martin</strong><span style="font-size: 13px; color: #93A3A5">Guitare · Yann Douarinou</span></span>
+      </div>
+      <div role="radiogroup" aria-label="Présence de Léa Martin" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+        <button type="button" role="radio" aria-checked="true" style="height: 44px; border: 0; border-radius: 10px; background: #57A8AE; color: #0B1417; font: inherit; font-weight: 700; font-size: 14px">Présent</button>
+        <button type="button" role="radio" aria-checked="false" style="height: 44px; border: 1px solid #2A3B40; border-radius: 10px; background: transparent; color: #BFC8C6; font: inherit; font-weight: 700; font-size: 14px">Absent</button>
+        <button type="button" role="radio" aria-checked="false" style="height: 44px; border: 1px solid #2A3B40; border-radius: 10px; background: transparent; color: #BFC8C6; font: inherit; font-weight: 700; font-size: 14px">Annulé</button>
+      </div>
+    </article>
+
+    <article style="background: #16252A; border: 1px solid #2A3B40; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #93A3A5">12:00</span>
+        <span style="display: flex; flex-direction: column"><strong style="font-size: 16px">Hugo Bernard</strong><span style="font-size: 13px; color: #93A3A5">Basse · Yann Douarinou</span></span>
+      </div>
+      <div role="radiogroup" aria-label="Présence de Hugo Bernard" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+        <button type="button" role="radio" aria-checked="false" style="height: 44px; border: 1px solid #2A3B40; border-radius: 10px; background: transparent; color: #BFC8C6; font: inherit; font-weight: 700; font-size: 14px">Présent</button>
+        <button type="button" role="radio" aria-checked="true" style="height: 44px; border: 1.5px solid #E0735C; border-radius: 10px; background: #3A1E18; color: #F2A08E; font: inherit; font-weight: 700; font-size: 14px">Absent</button>
+        <button type="button" role="radio" aria-checked="false" style="height: 44px; border: 1px solid #2A3B40; border-radius: 10px; background: transparent; color: #BFC8C6; font: inherit; font-weight: 700; font-size: 14px">Annulé</button>
+      </div>
+    </article>
+
+    <article style="background: #16252A; border: 1.5px dashed #D9A23A; border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #93A3A5">17:00</span>
+        <span style="display: flex; flex-direction: column; flex-grow: 1"><strong style="font-size: 16px">Atelier jazz</strong><span style="font-size: 13px; color: #93A3A5">4 musiciens · Yann Douarinou</span></span>
+        <span style="padding: 3px 9px; border-radius: 999px; background: #3A2E16; color: #F0C979; font-size: 12px; font-weight: 700">À renseigner</span>
+      </div>
+      <div role="radiogroup" aria-label="Présence de l'atelier jazz" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+        <button type="button" role="radio" aria-checked="false" style="height: 44px; border: 1px solid #2A3B40; border-radius: 10px; background: transparent; color: #BFC8C6; font: inherit; font-weight: 700; font-size: 14px">Présent</button>
+        <button type="button" role="radio" aria-checked="false" style="height: 44px; border: 1px solid #2A3B40; border-radius: 10px; background: transparent; color: #BFC8C6; font: inherit; font-weight: 700; font-size: 14px">Absent</button>
+        <button type="button" role="radio" aria-checked="false" style="height: 44px; border: 1px solid #2A3B40; border-radius: 10px; background: transparent; color: #BFC8C6; font: inherit; font-weight: 700; font-size: 14px">Annulé</button>
+      </div>
+    </article>
+  </div>
+
+  <div style="padding: 12px 16px; display: flex; align-items: center; gap: 12px">
+    <span style="display: flex; flex-direction: column; flex-grow: 1"><strong style="font-size: 15px">2 sur 3</strong><span style="font-size: 12px; color: #93A3A5">séances renseignées</span></span>
+    <button type="button" style="height: 48px; padding: 0 22px; border: 0; border-radius: 999px; background: #57A8AE; color: #0B1417; font: inherit; font-weight: 700; font-size: 15px">Enregistrer</button>
+  </div>
+
+  <nav aria-label="Navigation" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid #2A3B40; background: #0B1417; padding: 6px 8px 18px">
+    <a href="Dashboard-nuit.dc.html" style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #93A3A5; font-size: 11px; font-weight: 700; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>Tableau</a>
+    <a href="Presences-nuit.dc.html" style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #93A3A5; font-size: 11px; font-weight: 700; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"></rect><path d="M3 9h18M8 2v4M16 2v4M8.5 15l2.5 2.5 4.5-5"></path></svg>Présences</a>
+    <a href="#" aria-current="page" style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #7CC4C6; font-size: 11px; font-weight: 800; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21h16M6 17l10-10 3 3-10 10H6v-3z"></path></svg>Émargement</a>
+    <a href="#" style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #93A3A5; font-size: 11px; font-weight: 700; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"></circle><circle cx="12" cy="12" r="1.5"></circle><circle cx="19" cy="12" r="1.5"></circle></svg>Plus</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

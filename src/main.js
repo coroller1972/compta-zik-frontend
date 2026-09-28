@@ -2,6 +2,7 @@ import { createApp, computed, nextTick, reactive, ref, watch } from "./vendor/vu
 import qrcode from "./vendor/qrcode-generator.min.mjs";
 import { createSessionTransport } from "./session-transport.mjs";
 import { AvatarCropDialog } from "./avatar-crop-dialog.mjs";
+import { THEME_CHOICES, THEME_STORAGE_KEY, applyThemePreference, normalizeTheme, readThemePreference, saveThemePreference } from "./theme.mjs";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -280,7 +281,7 @@ function firstDayOfBusinessWeek(year, week) {
 
 function countLabel(count, singular, plural = `${singular}s`) {
   const normalizedCount = Number(count) || 0;
-  return `${normalizedCount} ${normalizedCount === 1 ? singular : plural}`;
+  return `${normalizedCount} ${Math.abs(normalizedCount) <= 1 ? singular : plural}`;
 }
 
 function emptyTotpDigits() {
@@ -719,6 +720,240 @@ const app = createApp({
       .filter((row) => !attendanceTeacherFilterId.value || row.band.teacherId === attendanceTeacherFilterId.value)
       .sort((a, b) => a.band.name.localeCompare(b.band.name, "fr")));
 
+    const ATTENDANCE_STATUS_WORDS = { PRESENT: "présent", ABSENT: "absent", CANCELLED: "annulé", UNRECORDED: "non renseigné" };
+    const TERM_DAY_FORMAT = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
+
+    function weekdayShort(weekday) {
+      return weekday ? weekday.slice(0, 3) : "";
+    }
+
+    function weekdayOrder(weekday) {
+      const index = WEEKDAYS.indexOf(weekday);
+      return index < 0 ? WEEKDAYS.length : index;
+    }
+
+    // Grille : un groupe par professeur (cours individuels), puis les ateliers.
+    const attendanceGroups = computed(() => {
+      const byTeacher = new Map();
+      attendanceCourseRows.value.forEach((row) => {
+        if (!byTeacher.has(row.teacher.id)) byTeacher.set(row.teacher.id, { teacher: row.teacher, rows: [] });
+        byTeacher.get(row.teacher.id).rows.push(row);
+      });
+      const teacherGroups = [...byTeacher.values()]
+        .sort((left, right) => fullName(left.teacher).localeCompare(fullName(right.teacher), "fr"))
+        .map(({ teacher, rows }) => ({
+          key: `teacher-${teacher.id}`,
+          title: fullName(teacher),
+          subtitle: ["Cours individuels", teacher.instrument].filter(Boolean).join(" · "),
+          rows: [...rows]
+            .sort((left, right) => (
+              weekdayOrder(left.course.weekday) - weekdayOrder(right.course.weekday)
+              || String(left.course.startTime).localeCompare(String(right.course.startTime))
+              || fullName(left.musician).localeCompare(fullName(right.musician), "fr")
+            ))
+            .map((row) => ({
+              key: `course-${row.course.id}`,
+              entityType: "individualCourse",
+              entityId: row.course.id,
+              time: `${weekdayShort(row.course.weekday)} ${row.course.startTime || ""}`.trim(),
+              name: fullName(row.musician),
+              detail: row.course.instrument || "",
+              count: row.count,
+            })),
+        }));
+      const workshopRows = attendanceWorkshopRows.value.map((row) => ({
+        key: `workshop-${row.band.id}`,
+        entityType: "workshop",
+        entityId: row.band.id,
+        time: weekdayShort(row.band.weekday),
+        name: row.band.name,
+        detail: [row.teacher ? fullName(row.teacher) : "", countLabel(memberCount(row.band), "musicien")].filter(Boolean).join(" · "),
+        count: row.count,
+      }));
+      return workshopRows.length
+        ? [...teacherGroups, {
+          key: "workshops",
+          title: "Ateliers",
+          subtitle: `Groupes de travail encadrés · ${hoursLabel(state.settings.workshopHours)} par séance`,
+          rows: workshopRows,
+        }]
+        : teacherGroups;
+    });
+
+    const currentAttendanceWeek = computed(() => {
+      const now = new Date();
+      if (Number(state.settings.year) !== now.getFullYear()) return null;
+      const week = isoWeekNumber(now);
+      return weeks.value.includes(week) ? week : null;
+    });
+
+    const attendanceWeekSummary = computed(() => {
+      const week = currentAttendanceWeek.value;
+      if (!week) return null;
+      const summary = { week, PRESENT: 0, ABSENT: 0, CANCELLED: 0, UNRECORDED: 0 };
+      attendanceGroups.value.forEach((group) => group.rows.forEach((row) => {
+        summary[attendanceStatus(row.entityType, row.entityId, week)] += 1;
+      }));
+      return summary;
+    });
+
+    const attendanceTotalPresent = computed(() => attendanceGroups.value
+      .reduce((sum, group) => sum + group.rows.reduce((groupSum, row) => groupSum + row.count, 0), 0));
+
+    const attendanceSaving = computed(() => savingAttendanceKeys.size > 0);
+
+    // Émargement mobile par jour (partition.md §6) : semaine du trimestre, onglets Lun–Ven, une carte par séance.
+    const DAY_ENTRY_CHOICES = [
+      { value: "PRESENT", label: "Présent" },
+      { value: "ABSENT", label: "Absent" },
+      { value: "CANCELLED", label: "Annulé" },
+    ];
+    const dayEntryWeek = ref(null);
+    const dayEntryDay = ref(null);
+
+    const dayEntryWeekValue = computed(() => (
+      weeks.value.includes(dayEntryWeek.value) ? dayEntryWeek.value : (currentAttendanceWeek.value || weeks.value[0] || null)
+    ));
+
+    function dayEntryMonday(week) {
+      const first = firstDayOfBusinessWeek(Number(state.settings.year), week);
+      first.setDate(first.getDate() - ((first.getDay() + 6) % 7));
+      return first;
+    }
+
+    function dayEntrySessionsFor(dayName) {
+      const courses = state.individualCourses
+        .filter((course) => course.weekday === dayName)
+        .map((course) => ({ course, musician: musiciansById.value[course.musicianId], teacher: teachersById.value[course.teacherId] }))
+        .filter((row) => row.musician && row.teacher && (isActiveCourse(row.course) || hasTermAttendance("individualCourse", row.course.id)))
+        .map((row) => ({
+          key: `course-${row.course.id}`,
+          entityType: "individualCourse",
+          entityId: row.course.id,
+          time: row.course.startTime || "",
+          name: fullName(row.musician),
+          detail: [row.course.instrument, fullName(row.teacher)].filter(Boolean).join(" · "),
+        }));
+      const workshops = workshopBands.value
+        .filter((band) => band.weekday === dayName)
+        .map((band) => ({
+          key: `workshop-${band.id}`,
+          entityType: "workshop",
+          entityId: band.id,
+          time: "Atelier",
+          name: band.name,
+          detail: [countLabel(memberCount(band), "musicien"), teachersById.value[band.teacherId] ? fullName(teachersById.value[band.teacherId]) : ""].filter(Boolean).join(" · "),
+        }));
+      return [...courses.sort((left, right) => String(left.time).localeCompare(String(right.time))), ...workshops];
+    }
+
+    const dayEntryDays = computed(() => {
+      const week = dayEntryWeekValue.value;
+      if (!week) return [];
+      const monday = dayEntryMonday(week);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return WEEKDAYS.map((name, index) => {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + index);
+        const sessions = dayEntrySessionsFor(name);
+        return {
+          name,
+          short: weekdayShort(name),
+          date,
+          number: date.getDate(),
+          isToday: date.getTime() === today.getTime(),
+          pending: date <= today && sessions.some((session) => attendanceStatus(session.entityType, session.entityId, week) === "UNRECORDED"),
+          sessionCount: sessions.length,
+        };
+      });
+    });
+
+    const dayEntryDayValue = computed(() => {
+      const days = dayEntryDays.value;
+      if (days.some((day) => day.name === dayEntryDay.value)) return dayEntryDay.value;
+      return (days.find((day) => day.isToday) || days.find((day) => day.sessionCount) || days[0])?.name || WEEKDAYS[0];
+    });
+
+    const dayEntrySessions = computed(() => dayEntrySessionsFor(dayEntryDayValue.value));
+
+    const dayEntryTitle = computed(() => {
+      const day = dayEntryDays.value.find((item) => item.name === dayEntryDayValue.value);
+      return day ? `${day.name} ${day.number}` : dayEntryDayValue.value;
+    });
+
+    const dayEntryWeekLabel = computed(() => {
+      const week = dayEntryWeekValue.value;
+      if (!week) return "";
+      const start = dayEntryMonday(week);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      const startLabel = start.getMonth() === end.getMonth() ? String(start.getDate()) : TERM_DAY_FORMAT.format(start);
+      return `${startLabel} → ${TERM_DAY_FORMAT.format(end)} · ${selectedTerm.value?.name || ""}`;
+    });
+
+    const dayEntryRecorded = computed(() => dayEntrySessions.value
+      .filter((session) => attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue.value) !== "UNRECORDED").length);
+
+    function shiftDayEntryWeek(delta) {
+      const index = weeks.value.indexOf(dayEntryWeekValue.value);
+      const next = weeks.value[index + delta];
+      if (!next) return;
+      dayEntryWeek.value = next;
+      dayEntryDay.value = null;
+    }
+
+    const mobileMenuOpen = ref(false);
+    const mobileTabs = computed(() => {
+      if (mustChangePassword.value) return [];
+      return [
+        { view: "dashboard", label: "Tableau", visible: true },
+        { view: "attendance", label: "Présences", visible: can("PRESENCE_READ") },
+        { view: "signatures", label: "Émargement", visible: can("PRESENCE_READ") },
+      ].filter((tab) => tab.visible);
+    });
+
+    watch(activeView, () => {
+      mobileMenuOpen.value = false;
+    });
+    watch(selectedTermId, () => {
+      dayEntryWeek.value = null;
+      dayEntryDay.value = null;
+    });
+    watch(mobileMenuOpen, (open) => {
+      nextTick(() => {
+        if (open) document.querySelector(".sidebar-close")?.focus();
+        else if (document.activeElement === document.body || document.activeElement?.closest(".sidebar")) document.querySelector(".tab-more")?.focus();
+      });
+    });
+
+    const termEyebrow = computed(() => {
+      const term = selectedTerm.value;
+      if (!term) return "";
+      const year = Number(state.settings.year);
+      const start = firstDayOfBusinessWeek(year, term.startWeek);
+      const end = firstDayOfBusinessWeek(year, term.endWeek);
+      end.setDate(end.getDate() + 6);
+      return `${term.name} · semaines ${term.startWeek} à ${term.endWeek} · ${TERM_DAY_FORMAT.format(start)} → ${TERM_DAY_FORMAT.format(end)}`;
+    });
+
+    function attendanceCellLabel(row, week) {
+      const status = attendanceStatus(row.entityType, row.entityId, week);
+      const date = attendanceDateLabel(row.entityType, row.entityId, week);
+      const locked = isAttendanceLocked(row.entityType, row.entityId, week) ? " (facturée, verrouillée)" : "";
+      return `${row.name}, semaine ${week}${date ? ` (${date})` : ""} : ${ATTENDANCE_STATUS_WORDS[status] || status}${locked}`;
+    }
+
+    function attendanceCellTitle(row, week) {
+      const attendance = attendanceFor(row.entityType, row.entityId, week);
+      const date = attendanceDateLabel(row.entityType, row.entityId, week);
+      const status = ATTENDANCE_STATUS_WORDS[attendanceStatus(row.entityType, row.entityId, week)];
+      const base = `S${week}${date ? ` · ${date}` : ""} · ${status}`;
+      return attendance?.billingLocked
+        ? `${base} · rémunérée par ${attendance.billingDocumentNumber || attendance.billingDocumentId}`
+        : base;
+    }
+
     const teacherRequestsById = computed(() => Object.fromEntries(
       (billingSummary.value?.teacherInvoiceRequests || []).map((request) => [request.teacherId, request]),
     ));
@@ -778,6 +1013,7 @@ const app = createApp({
           expenses,
           selected: term.id === selectedTermId.value,
           automatic: term.id === automaticTerm.value?.id,
+          phase: dashboardTermPhase(term),
         };
       }));
 
@@ -788,10 +1024,46 @@ const app = createApp({
       subsidy: dashboardTerms.value.reduce((sum, term) => sum + term.subsidy, 0),
     }));
 
-    const dashboardChartMaximum = computed(() => Math.max(
-      1,
-      ...dashboardTerms.value.flatMap((term) => [term.studentBilling, term.teacherDue, term.subsidy, term.expenses]),
-    ));
+    // Échelle « ronde » de la portée : cinq lignes (4 intervalles), ex. 5 000 / 3 750 / 2 500 / 1 250 / 0.
+    const dashboardChartScale = computed(() => {
+      const maximum = Math.max(
+        1,
+        ...dashboardTerms.value.flatMap((term) => [term.studentBilling, term.teacherDue, term.subsidy, term.expenses]),
+      );
+      const rawStep = maximum / 4;
+      const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+      const step = [1, 1.25, 2, 2.5, 5, 10].map((factor) => factor * magnitude).find((candidate) => candidate >= rawStep);
+      return { max: step * 4, ticks: [4, 3, 2, 1, 0].map((index) => index * step) };
+    });
+
+    const DASHBOARD_SERIES = [
+      { key: "studentBilling", label: "Facturation élèves", className: "students", fromBilling: true },
+      { key: "teacherDue", label: "Prestataires", className: "teachers", fromBilling: true },
+      { key: "subsidy", label: "Subvention", className: "subsidy", fromBilling: true },
+      { key: "expenses", label: "Dépenses", className: "expenses", fromBilling: false },
+    ];
+
+    const dashboardChartSummary = computed(() => dashboardTerms.value.map((term) => (
+      `${term.name} : ${DASHBOARD_SERIES.map((series) => `${series.label.toLowerCase()} ${series.fromBilling ? billingMoney(term[series.key]) : money(term[series.key])}`).join(", ")}`
+    )).join(" ; "));
+
+    const dashboardKpiTiles = computed(() => [
+      { key: "studentBilling", label: "Facturation élèves", detail: "Cours + cotisations", value: billingMoney(annualDashboardTotals.value.studentBilling) },
+      { key: "teacherDue", label: "Coût prestataires", detail: "Cours individuels + ateliers", value: billingMoney(annualDashboardTotals.value.teacherDue) },
+      { key: "expenses", label: "Dépenses", detail: "Charges de l'année", value: money(annualDashboardTotals.value.expenses) },
+      { key: "subsidy", label: "Subvention calculée", detail: "Dû − 50 % cours − cotisations", value: billingMoney(annualDashboardTotals.value.subsidy), emphasis: true },
+    ].map((tile) => {
+      const maximum = Math.max(0, ...dashboardTerms.value.map((term) => term[tile.key]));
+      return {
+        ...tile,
+        available: tile.key === "expenses" || billingStatus.value === "ready",
+        bars: dashboardTerms.value.map((term) => ({
+          id: term.id,
+          phase: term.phase,
+          height: maximum > 0 ? Math.max(3, (term[tile.key] / maximum) * 30) : 3,
+        })),
+      };
+    }));
 
     const dashboardOutflowTotal = computed(() => (
       annualDashboardTotals.value.subsidy + annualDashboardTotals.value.expenses
@@ -802,10 +1074,6 @@ const app = createApp({
         ? (annualDashboardTotals.value.subsidy / dashboardOutflowTotal.value) * 100
         : 0
     ));
-
-    const dashboardDonutStyle = computed(() => ({
-      background: `conic-gradient(#123f49 0 ${dashboardSubsidyShare.value}%, #e98222 ${dashboardSubsidyShare.value}% 100%)`,
-    }));
 
     const dashboardTeacherActivity = computed(() => (
       billingSummariesByTerm.value[selectedTermId.value]?.teacherInvoiceRequests || []
@@ -833,17 +1101,28 @@ const app = createApp({
     }), { hours: 0, issued: 0, remaining: 0 }));
 
     function dashboardBarHeight(value) {
-      if (!value) return "0%";
-      return `${Math.max(5, (Number(value) / dashboardChartMaximum.value) * 100)}%`;
+      if (!value) return "0px";
+      return `${Math.max(3, (Number(value) / dashboardChartScale.value.max) * 200).toFixed(1)}px`;
     }
 
-    function dashboardTermStatus(term) {
-      if (term.automatic) return "Actuel";
-      if (Number(state.settings.year) < new Date().getFullYear()) return "Réalisé";
-      if (Number(state.settings.year) > new Date().getFullYear()) return "À venir";
-      const currentWeek = isoWeekNumber(new Date());
-      if (term.startWeek > currentWeek) return "À venir";
-      return "Réalisé";
+    function dashboardTermPhase(term) {
+      const year = Number(state.settings.year);
+      const now = new Date();
+      if (year < now.getFullYear()) return "done";
+      if (year > now.getFullYear()) return "upcoming";
+      const currentWeek = isoWeekNumber(now);
+      if (currentWeek < term.startWeek) return "upcoming";
+      return currentWeek > term.endWeek ? "done" : "current";
+    }
+
+    const DASHBOARD_PHASE_LABELS = { done: "Terminé", current: "En cours", upcoming: "À venir" };
+
+    function dashboardSeriesValue(term, series) {
+      return series.fromBilling && billingStatus.value !== "ready" ? null : term[series.key];
+    }
+
+    function wholeEuros(value) {
+      return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(Number(value) || 0));
     }
 
     const expenseRows = computed(() => [...state.expenses].sort((a, b) => (
@@ -870,7 +1149,7 @@ const app = createApp({
       if (mustChangePassword.value) return "Nouveau mot de passe";
       if (mustEnrollMfa.value) return "Sécuriser le compte";
       if (mfaChallenge.active) return "Validation en deux étapes";
-      return "Compta Zik";
+      return "Connexion";
     });
     const mfaSetupCode = computed(() => mfaSetupDigits.value.join(""));
     const mfaSetupCodeComplete = computed(() => /^\d{6}$/.test(mfaSetupCode.value));
@@ -939,8 +1218,9 @@ const app = createApp({
     const mustChangePassword = computed(() => Boolean(currentUser.value?.mustChangePassword));
     const pageTitle = computed(() => {
       const labels = {
-        dashboard: `Vue annuelle ${state.settings.year}`,
+        dashboard: `Saison ${state.settings.year}`,
         expenses: `Dépenses ${state.settings.year}`,
+        attendance: "Présences",
         account: "Compte utilisateur",
         people: "Musiciens",
         slots: "Créneaux individuels",
@@ -968,6 +1248,44 @@ const app = createApp({
     const canCreateUsers = computed(() => can("ACCOUNT_CREATE"));
     const canAdminUsers = computed(() => can("ACCOUNT_MANAGE"));
     const canAccessSettings = computed(() => canAny(CONFIG_PERMISSIONS));
+    const navGroups = computed(() => {
+      if (mustChangePassword.value) return [];
+      return [
+        { label: "Saison", items: [
+          { view: "dashboard", label: "Tableau de bord", visible: true },
+          { view: "attendance", label: "Présences", visible: can("PRESENCE_READ") },
+          { view: "signatures", label: "Émargement", visible: can("PRESENCE_READ") },
+        ] },
+        { label: "Répertoire", items: [
+          { view: "people", label: "Musiciens", visible: canAny(["MUSICIENS_READ", "MUSICIENS_WRITE", "MUSICIENS_ARCHIVED"]) },
+          { view: "slots", label: "Créneaux", visible: canAny(["MUSICIENS_READ", "MUSICIENS_WRITE"]) },
+          { view: "groups", label: "Groupes", visible: canAny(["GROUPS_READ", "GROUPS_WRITE"]) },
+        ] },
+        { label: "Comptes", items: [
+          { view: "expenses", label: "Dépenses", visible: canAny(["EXPENSES_READ", "EXPENSES_WRITE", "EXPENSES_DELETE"]) },
+          { view: "billing", label: "Facturation", visible: canAny(["BILLING_READ", "BILLING_PRINT"]) },
+        ] },
+        { label: "Système", items: [
+          { view: "data-transfer", label: "Import / Export", visible: can("IMPORT_EXPORT") },
+          { view: "settings", label: "Configuration", visible: canAccessSettings.value },
+        ] },
+      ]
+        .map((group) => ({ ...group, items: group.items.filter((item) => item.visible) }))
+        .filter((group) => group.items.length);
+    });
+    const seasonPickerOpen = ref(false);
+    const themePreference = ref(applyThemePreference(readThemePreference()));
+
+    function setThemePreference(value) {
+      themePreference.value = saveThemePreference(value);
+    }
+
+    // Garde les onglets ouverts d'accord lorsque le thème change ailleurs.
+    window.addEventListener("storage", (event) => {
+      if (event.key === THEME_STORAGE_KEY || event.key === null) {
+        themePreference.value = applyThemePreference(normalizeTheme(event.newValue));
+      }
+    });
     const visibleAuthRoles = computed(() => {
       const rows = authRoles.value.length
         ? authRoles.value
@@ -1116,10 +1434,6 @@ const app = createApp({
         : attendanceStatus(entityType, entityId, week);
     }
 
-    function attendanceSymbol(entityType, entityId, week) {
-      return { PRESENT: "1", ABSENT: "–", CANCELLED: "×" }[attendanceStatus(entityType, entityId, week)] || "";
-    }
-
     function scheduledSessionDate(entityType, entityId, week) {
       const existing = attendanceFor(entityType, entityId, week)?.sessionDate;
       if (existing) return existing;
@@ -1235,7 +1549,7 @@ const app = createApp({
       return savingAttendanceKeys.has(attendanceSaveKey(entityType, entityId, week));
     }
 
-    async function toggleAttendance(entityType, entityId, week) {
+    async function setAttendanceStatus(entityType, entityId, week, status) {
       if (!can("PRESENCE_WRITE")) return;
       if (!ensureYearNotClosed("Les présences sont verrouillées")) return;
       if (isAttendanceLocked(entityType, entityId, week)) {
@@ -1248,8 +1562,9 @@ const app = createApp({
       const existing = attendanceFor(entityType, entityId, week);
       try {
         if (existing) {
-          existing.status = { PRESENT: "ABSENT", ABSENT: "CANCELLED", CANCELLED: "PRESENT" }[existing.status] || "PRESENT";
-          existing.present = existing.status === "PRESENT";
+          if (existing.status === status) return;
+          existing.status = status;
+          existing.present = status === "PRESENT";
           await saveAttendance(existing);
           return;
         }
@@ -1259,8 +1574,8 @@ const app = createApp({
           week,
           entityType,
           entityId,
-          present: true,
-          status: "PRESENT",
+          present: status === "PRESENT",
+          status,
           sessionDate: scheduledSessionDate(entityType, entityId, week),
         };
         state.attendance.push(entry);
@@ -1268,6 +1583,11 @@ const app = createApp({
       } finally {
         savingAttendanceKeys.delete(saveKey);
       }
+    }
+
+    async function toggleAttendance(entityType, entityId, week) {
+      const next = { PRESENT: "ABSENT", ABSENT: "CANCELLED", CANCELLED: "PRESENT" }[attendanceStatus(entityType, entityId, week)] || "PRESENT";
+      await setAttendanceStatus(entityType, entityId, week, next);
     }
 
     function resetMusicianForm() {
@@ -2096,6 +2416,16 @@ const app = createApp({
     function openBilling(tab = billingTab.value) {
       billingTab.value = tab;
       activeView.value = "billing";
+    }
+
+    function openNavView(view) {
+      if (view === "billing") openBilling();
+      else activeView.value = view;
+    }
+
+    async function switchSeason() {
+      seasonPickerOpen.value = false;
+      await loadFromApi();
     }
 
     function normalizeAuthRoleSelection(roles) {
@@ -3382,6 +3712,34 @@ const app = createApp({
       dashboardDateLabel,
       yearStatus,
       yearStatusLabel,
+      navGroups,
+      attendanceGroups,
+      currentAttendanceWeek,
+      attendanceWeekSummary,
+      attendanceTotalPresent,
+      attendanceSaving,
+      DAY_ENTRY_CHOICES,
+      dayEntryDay,
+      dayEntryWeekValue,
+      dayEntryDays,
+      dayEntryDayValue,
+      dayEntrySessions,
+      dayEntryTitle,
+      dayEntryWeekLabel,
+      dayEntryRecorded,
+      shiftDayEntryWeek,
+      setAttendanceStatus,
+      mobileMenuOpen,
+      mobileTabs,
+      termEyebrow,
+      attendanceCellLabel,
+      attendanceCellTitle,
+      seasonPickerOpen,
+      themePreference,
+      setThemePreference,
+      THEME_CHOICES,
+      openNavView,
+      switchSeason,
       structureLocked,
       yearClosed,
       isFirstTerm,
@@ -3490,11 +3848,16 @@ const app = createApp({
       annualDashboardTotals,
       dashboardOutflowTotal,
       dashboardSubsidyShare,
-      dashboardDonutStyle,
+      dashboardChartScale,
+      dashboardChartSummary,
+      dashboardKpiTiles,
+      DASHBOARD_SERIES,
+      DASHBOARD_PHASE_LABELS,
       dashboardTeacherActivity,
       dashboardTeacherActivityTotals,
       dashboardBarHeight,
-      dashboardTermStatus,
+      wholeEuros,
+      dashboardSeriesValue,
       loadBillingSummary,
       copyAnnualConfiguration,
       updateYearStatus,
@@ -3560,7 +3923,6 @@ const app = createApp({
       attendanceStatus,
       isAttendanceLocked,
       attendanceTitle,
-      attendanceSymbol,
       attendanceDateLabel,
       isAttendanceSaving,
       toggleAttendance,
@@ -3659,10 +4021,148 @@ const app = createApp({
     };
   },
   template: `
+    <svg class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="icon-edit" viewBox="0 0 24 24">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="M19 6l-1 14H6L5 6" />
+        <path d="M10 11v5" />
+        <path d="M14 11v5" />
+      </symbol>
+      <symbol id="icon-key" viewBox="0 0 24 24">
+        <circle cx="7.5" cy="14.5" r="3.5" />
+        <path d="M10 12l10-10" />
+        <path d="M15 7l2 2" />
+        <path d="M17 5l2 2" />
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="11" height="11" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </symbol>
+      <symbol id="icon-user-check" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M16 11l2 2 4-4" />
+      </symbol>
+      <symbol id="icon-user-x" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M17 8l5 5" />
+        <path d="M22 8l-5 5" />
+      </symbol>
+      <symbol id="icon-log-out" viewBox="0 0 24 24">
+        <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />
+      </symbol>
+      <symbol id="icon-note" viewBox="0 0 24 24">
+        <path d="M9 18V5l10-2v12" />
+        <circle cx="6.5" cy="18" r="2.5" fill="currentColor" />
+        <circle cx="16.5" cy="15" r="2.5" fill="currentColor" />
+      </symbol>
+      <symbol id="icon-lock" viewBox="0 0 24 24">
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      </symbol>
+      <symbol id="icon-arrow-right" viewBox="0 0 24 24">
+        <path d="M5 12h14M13 6l6 6-6 6" />
+      </symbol>
+      <symbol id="icon-chevron-left" viewBox="0 0 24 24">
+        <path d="M15 6l-6 6 6 6" />
+      </symbol>
+      <symbol id="icon-chevron-right" viewBox="0 0 24 24">
+        <path d="M9 6l6 6-6 6" />
+      </symbol>
+      <symbol id="icon-more" viewBox="0 0 24 24">
+        <circle cx="5" cy="12" r="1.5" />
+        <circle cx="12" cy="12" r="1.5" />
+        <circle cx="19" cy="12" r="1.5" />
+      </symbol>
+      <symbol id="icon-chevron-down" viewBox="0 0 24 24">
+        <path d="M7 10l5 5 5-5" />
+      </symbol>
+      <symbol id="icon-nav-dashboard" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="9" rx="1.5" />
+        <rect x="14" y="3" width="7" height="5" rx="1.5" />
+        <rect x="14" y="12" width="7" height="9" rx="1.5" />
+        <rect x="3" y="16" width="7" height="5" rx="1.5" />
+      </symbol>
+      <symbol id="icon-nav-attendance" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="17" rx="2" />
+        <path d="M3 9h18M8 2v4M16 2v4M8.5 15l2.5 2.5 4.5-5" />
+      </symbol>
+      <symbol id="icon-nav-signatures" viewBox="0 0 24 24">
+        <path d="M4 21h16M6 17l10-10 3 3-10 10H6v-3z" />
+      </symbol>
+      <symbol id="icon-nav-people" viewBox="0 0 24 24">
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 010 7M18 14.8c2 .7 3.2 2.5 3.5 5.2" />
+      </symbol>
+      <symbol id="icon-nav-slots" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </symbol>
+      <symbol id="icon-nav-groups" viewBox="0 0 24 24">
+        <path d="M9 18V5l11-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="17" cy="16" r="3" />
+      </symbol>
+      <symbol id="icon-nav-expenses" viewBox="0 0 24 24">
+        <path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z" />
+        <path d="M9 7h6M9 11h6M9 15h4" />
+      </symbol>
+      <symbol id="icon-nav-billing" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+        <path d="M14 2v6h6M8 13h8M8 17h5" />
+      </symbol>
+      <symbol id="icon-nav-data-transfer" viewBox="0 0 24 24">
+        <path d="M7 9l5-5 5 5M12 4v11M5 20h14" />
+      </symbol>
+      <symbol id="icon-nav-settings" viewBox="0 0 24 24">
+        <path d="M4 6h10M4 12h4M12 12h8M4 18h12" />
+        <circle cx="17" cy="6" r="2" />
+        <circle cx="10" cy="12" r="2" />
+        <circle cx="18" cy="18" r="2" />
+      </symbol>
+      <symbol id="icon-print" viewBox="0 0 24 24">
+        <path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" />
+        <rect x="7" y="14" width="10" height="7" rx="1" />
+      </symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24">
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </symbol>
+      <symbol id="icon-x" viewBox="0 0 24 24">
+        <path d="M6 6l12 12M18 6L6 18" />
+      </symbol>
+      <symbol id="icon-warning" viewBox="0 0 24 24">
+        <path d="M10.3 3.9L2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+        <path d="M12 9v4.5M12 17h.01" />
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+      </symbol>
+      <symbol id="icon-shield-check" viewBox="0 0 24 24">
+        <path d="M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z" />
+        <path d="M8.5 12l2.5 2.5 4.5-5" />
+      </symbol>
+      <symbol id="icon-shield-warning" viewBox="0 0 24 24">
+        <path d="M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z" />
+        <path d="M12 8v4.5M12 16h.01" />
+      </symbol>
+      <symbol id="icon-device-mobile" viewBox="0 0 24 24">
+        <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+        <path d="M11 18h2" />
+      </symbol>
+    </svg>
     <main v-if="authGateActive" class="login-shell">
       <section class="login-panel" :class="{ 'password-change-panel': mustChangePassword, 'mfa-panel': mustEnrollMfa || mfaChallenge.active }" aria-labelledby="login-title">
         <div class="login-brand">
-          <img class="brand-mark" src="/src/assets/logo.png" alt="" aria-hidden="true" />
+          <div class="sidebar-brand">
+            <span class="sidebar-mark" aria-hidden="true"><svg><use href="#icon-note"></use></svg></span>
+            <span class="wordmark">Compta <em>Zik</em></span>
+          </div>
           <div>
             <p class="eyebrow">Comptabilité activité musique</p>
             <h1 id="login-title">{{ authGateTitle }}</h1>
@@ -3674,7 +4174,7 @@ const app = createApp({
         </div>
         <section v-else-if="mfaRecoveryCodes.length" class="mfa-recovery-screen">
           <div class="security-callout warning">
-            <i class="ph ph-warning" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-warning"></use></svg>
             <div>
               <strong>Enregistrez ces codes maintenant</strong>
               <p>Ils ne seront plus affichés. Chaque code permet une connexion si votre application d’authentification est indisponible.</p>
@@ -3684,14 +4184,14 @@ const app = createApp({
             <li v-for="code in mfaRecoveryCodes" :key="code"><code>{{ code }}</code></li>
           </ol>
           <div class="mfa-actions">
-            <button class="ghost-button" type="button" @click="copyRecoveryCodes"><i class="ph ph-copy" aria-hidden="true"></i> Copier</button>
-            <button class="ghost-button" type="button" @click="downloadRecoveryCodes"><i class="ph ph-download-simple" aria-hidden="true"></i> Télécharger</button>
+            <button class="ghost-button" type="button" @click="copyRecoveryCodes"><svg class="icon" aria-hidden="true"><use href="#icon-copy"></use></svg> Copier</button>
+            <button class="ghost-button" type="button" @click="downloadRecoveryCodes"><svg class="icon" aria-hidden="true"><use href="#icon-download"></use></svg> Télécharger</button>
             <button class="primary-button" type="button" @click="acknowledgeRecoveryCodes">J’ai enregistré les codes</button>
           </div>
         </section>
         <section v-else-if="mustEnrollMfa" class="mfa-enrollment">
           <div class="security-callout">
-            <i class="ph ph-shield-check" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-shield-check"></use></svg>
             <div>
               <strong>Protection obligatoire pour les administrateurs</strong>
               <p>Associez ce compte à une application TOTP avant d’accéder aux données comptables.</p>
@@ -3742,7 +4242,7 @@ const app = createApp({
         </section>
         <form v-if="!authFlowPending && !mfaRecoveryCodes.length && !mustEnrollMfa && mfaChallenge.active" class="login-form mfa-challenge-form" @submit.prevent="verifyMfaLogin">
           <div class="security-callout">
-            <i class="ph ph-device-mobile" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-device-mobile"></use></svg>
             <div>
               <strong>Deuxième étape de connexion</strong>
               <p>Saisissez le code de votre application d’authentification ou un code de récupération.</p>
@@ -3881,98 +4381,109 @@ const app = createApp({
       </section>
       <div class="toast-stack" aria-live="polite">
         <div v-for="toast in toasts" :key="toast.id" :class="['toast', toast.type]">
-          {{ toast.message }}
+          <span class="toast-badge" aria-hidden="true"><svg><use :href="toast.type === 'success' ? '#icon-check' : toast.type === 'error' ? '#icon-x' : '#icon-warning'"></use></svg></span>
+          <span>{{ toast.message }}</span>
         </div>
       </div>
     </main>
-    <main v-else class="shell">
-      <svg class="icon-sprite" aria-hidden="true" focusable="false">
-        <symbol id="icon-edit" viewBox="0 0 24 24">
-          <path d="M12 20h9" />
-          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-        </symbol>
-        <symbol id="icon-trash" viewBox="0 0 24 24">
-          <path d="M3 6h18" />
-          <path d="M8 6V4h8v2" />
-          <path d="M19 6l-1 14H6L5 6" />
-          <path d="M10 11v5" />
-          <path d="M14 11v5" />
-        </symbol>
-        <symbol id="icon-key" viewBox="0 0 24 24">
-          <circle cx="7.5" cy="14.5" r="3.5" />
-          <path d="M10 12l10-10" />
-          <path d="M15 7l2 2" />
-          <path d="M17 5l2 2" />
-        </symbol>
-        <symbol id="icon-copy" viewBox="0 0 24 24">
-          <rect x="9" y="9" width="11" height="11" rx="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </symbol>
-        <symbol id="icon-user-check" viewBox="0 0 24 24">
-          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M16 11l2 2 4-4" />
-        </symbol>
-        <symbol id="icon-user-x" viewBox="0 0 24 24">
-          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-          <path d="M17 8l5 5" />
-          <path d="M22 8l-5 5" />
-        </symbol>
-        <symbol id="icon-log-out" viewBox="0 0 24 24">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-          <path d="M16 17l5-5-5-5" />
-          <path d="M21 12H9" />
-        </symbol>
-      </svg>
-      <aside class="sidebar">
-        <div class="brand">
-          <img class="brand-mark" src="/src/assets/logo.png" alt="" aria-hidden="true" />
-          <div>
-            <strong>Compta Zik</strong>
-            <small>{{ state.settings.year }}</small>
-          </div>
+    <main v-else :class="['shell', { 'menu-open': mobileMenuOpen }]">
+      <aside id="app-menu" class="sidebar" @keydown.esc="mobileMenuOpen = false">
+        <button type="button" class="sidebar-close" aria-label="Fermer le menu" @click="mobileMenuOpen = false">
+          <svg aria-hidden="true"><use href="#icon-x"></use></svg>
+        </button>
+        <div class="sidebar-brand">
+          <span class="sidebar-mark" aria-hidden="true"><svg><use href="#icon-note"></use></svg></span>
+          <span class="wordmark">Compta <em>Zik</em></span>
         </div>
-        <nav class="nav">
-          <button v-if="!mustChangePassword" :class="{ active: activeView === 'dashboard' }" @click="activeView = 'dashboard'">Tableau de bord</button>
-          <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'attendance' }" @click="activeView = 'attendance'">Présences</button>
-          <button v-if="!mustChangePassword && can('PRESENCE_READ')" :class="{ active: activeView === 'signatures' }" @click="activeView = 'signatures'">Émargement</button>
-          <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE', 'MUSICIENS_ARCHIVED'])" :class="{ active: activeView === 'people' }" @click="activeView = 'people'">Musiciens</button>
-          <button v-if="!mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" :class="{ active: activeView === 'slots' }" @click="activeView = 'slots'">Créneaux</button>
-          <button v-if="!mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" :class="{ active: activeView === 'groups' }" @click="activeView = 'groups'">Groupes</button>
-          <button v-if="!mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" :class="{ active: activeView === 'expenses' }" @click="activeView = 'expenses'">Dépenses</button>
-          <button v-if="!mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" :class="{ active: activeView === 'billing' }" @click="openBilling()">Facturation</button>
-          <button v-if="!mustChangePassword && can('IMPORT_EXPORT')" :class="{ active: activeView === 'data-transfer' }" @click="activeView = 'data-transfer'">Import / Export</button>
-          <button v-if="canUseAccount" :class="{ active: activeView === 'account' }" @click="openAccountView">Compte</button>
-          <button v-if="!mustChangePassword && canAccessSettings" :class="{ active: activeView === 'settings' }" @click="activeView = 'settings'">Configuration</button>
+        <div v-if="!mustChangePassword" class="season-picker" @keydown.esc="seasonPickerOpen = false">
+          <button type="button" class="season-button" :aria-expanded="seasonPickerOpen ? 'true' : 'false'" aria-controls="season-panel" @click="seasonPickerOpen = !seasonPickerOpen">
+            <span class="season-copy"><small>Saison</small><strong>{{ state.settings.year }}</strong></span>
+            <span class="season-meta">
+              <span :class="['year-pill', yearStatus.toLowerCase()]">{{ yearStatusLabel }}</span>
+              <svg aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+            </span>
+          </button>
+          <form v-if="seasonPickerOpen" id="season-panel" class="season-panel" @submit.prevent="switchSeason">
+            <label>Changer de saison
+              <input type="number" v-model.number="accountingYearInput" min="2000" max="2100" />
+            </label>
+            <button type="submit" class="primary-button">Charger</button>
+          </form>
+        </div>
+        <nav class="nav" aria-label="Navigation principale">
+          <div v-for="group in navGroups" :key="group.label" class="nav-group">
+            <span class="nav-group-label">{{ group.label }}</span>
+            <button
+              v-for="item in group.items"
+              :key="item.view"
+              type="button"
+              :class="{ active: activeView === item.view }"
+              :aria-current="activeView === item.view ? 'page' : null"
+              @click="openNavView(item.view)"
+            >
+              <svg aria-hidden="true"><use :href="'#icon-nav-' + item.view"></use></svg>
+              {{ item.label }}
+            </button>
+          </div>
         </nav>
-        <div class="api-box">
-          <div class="user-box">
-            <div class="user-avatar-wrap">
+        <div class="user-box">
+          <component
+            :is="canUseAccount ? 'button' : 'div'"
+            :type="canUseAccount ? 'button' : null"
+            :class="['user-identity', { active: activeView === 'account' }]"
+            :aria-current="activeView === 'account' ? 'page' : null"
+            :title="canUseAccount ? 'Mon compte' : null"
+            @click="canUseAccount && openAccountView()"
+          >
+            <span class="user-avatar-wrap">
               <img v-if="currentUserAvatarUrl" class="user-avatar image" :src="currentUserAvatarUrl" alt="" />
               <span v-else class="user-avatar" aria-hidden="true">{{ currentUserInitials }}</span>
               <span :class="['status', 'avatar-status', apiStatus === 'connecté' ? 'ok' : 'demo']"></span>
-            </div>
-            <div class="user-copy">
-              <span>{{ currentUserLabel }}</span>
+            </span>
+            <span class="user-copy">
+              <strong>{{ currentUserLabel }}</strong>
               <small v-if="currentUserDetail">{{ currentUserDetail }}</small>
-            </div>
-            <button class="sidebar-icon-button" @click="logout" aria-label="Déconnexion" title="Déconnexion">
-              <svg aria-hidden="true"><use href="#icon-log-out"></use></svg>
-            </button>
-          </div>
+            </span>
+          </component>
+          <button type="button" class="sidebar-icon-button" @click="logout" aria-label="Se déconnecter" title="Se déconnecter">
+            <svg aria-hidden="true"><use href="#icon-log-out"></use></svg>
+          </button>
         </div>
       </aside>
 
       <section class="content">
+        <div class="mobile-header">
+          <span class="wordmark">Compta <em>Zik</em></span>
+          <button type="button" class="mobile-avatar" :aria-label="canUseAccount ? 'Mon compte' : 'Ouvrir le menu'" @click="canUseAccount ? openAccountView() : (mobileMenuOpen = true)">
+            <img v-if="currentUserAvatarUrl" :src="currentUserAvatarUrl" alt="" />
+            <span v-else aria-hidden="true">{{ currentUserInitials }}</span>
+          </button>
+        </div>
         <header class="topbar">
-          <div>
-            <p v-if="activeView !== 'dashboard'" class="eyebrow">Comptabilité activité musique</p>
+          <div class="topbar-title">
+            <p v-if="activeView === 'dashboard'" class="eyebrow">Situation consolidée au {{ dashboardDateLabel }}</p>
+            <p v-else-if="viewUsesTerm && termEyebrow" class="eyebrow">{{ termEyebrow }}</p>
+            <p v-else class="eyebrow">Comptabilité activité musique</p>
             <h1>{{ pageTitle }}</h1>
-            <p v-if="activeView === 'dashboard'" class="dashboard-date">Situation consolidée au {{ dashboardDateLabel }}</p>
           </div>
           <div class="topbar-actions">
-            <div v-if="viewUsesTerm" class="term-control">
+            <span v-if="activeView === 'attendance' && can('PRESENCE_WRITE')" :class="['save-indicator', { saving: attendanceSaving }]" role="status">
+              {{ attendanceSaving ? 'Enregistrement…' : 'Enregistré automatiquement' }}
+            </span>
+            <div v-if="viewUsesTerm && dashboardTerms.length" class="segmented" role="group" aria-label="Trimestre">
+              <button
+                v-for="term in dashboardTerms"
+                :key="term.id"
+                type="button"
+                :aria-pressed="term.selected ? 'true' : 'false'"
+                @click="selectedTermId = term.id"
+              >
+                {{ term.name }}
+                <span v-if="term.phase === 'current'" class="segmented-dot" aria-hidden="true"></span>
+                <span v-if="term.phase === 'current'" class="visually-hidden">(en cours)</span>
+              </button>
+            </div>
+            <div v-else-if="viewUsesTerm" class="term-control">
               <label for="term">Période</label>
               <select id="term" v-model="selectedTermId">
                 <option v-for="term in state.settings.terms" :key="term.id" :value="term.id">
@@ -3982,164 +4493,147 @@ const app = createApp({
             </div>
             <button
               v-if="activeView === 'dashboard' && canAny(['BILLING_READ', 'BILLING_PRINT'])"
+              type="button"
               class="primary-button billing-review-button"
               @click="openBilling('providers')"
             >
-              Préparer la facturation
+              Préparer la facturation {{ selectedTerm?.name }}
+              <svg aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
             </button>
           </div>
         </header>
 
-        <section v-if="activeView === 'dashboard' && !mustChangePassword" class="view-stack">
+        <section v-if="activeView === 'dashboard' && !mustChangePassword" class="view-stack dashboard-view">
           <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error' }" role="status">
             <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Connectez le backend pour charger les montants comptables.') }}</span>
             <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
           </div>
-          <div class="annual-kpi-grid">
-            <article class="annual-kpi">
-              <span>Facturation élèves</span>
-              <strong>{{ billingMoney(annualDashboardTotals.studentBilling) }}</strong>
-              <small>Cours + cotisations, cumul annuel</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-            <article class="annual-kpi">
-              <span>Coût prestataires</span>
-              <strong>{{ billingMoney(annualDashboardTotals.teacherDue) }}</strong>
-              <small>Cours individuels + ateliers</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-            <article class="annual-kpi">
-              <span>Dépenses</span>
-              <strong>{{ money(annualDashboardTotals.expenses) }}</strong>
-              <small>Charges enregistrées sur l’année</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-            <article class="annual-kpi emphasis">
-              <span>Subvention calculée</span>
-              <strong>{{ billingMoney(annualDashboardTotals.subsidy) }}</strong>
-              <small>Dû prestataires − 50 % cours − cotisations</small>
-              <img src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
-            </article>
-          </div>
 
-          <div class="annual-chart-grid">
-            <section class="panel annual-bars-panel">
-              <div class="annual-panel-heading">
+          <section class="kpi-tiles" aria-label="Totaux annuels">
+            <article v-for="tile in dashboardKpiTiles" :key="tile.key" :class="['kpi-tile', { emphasis: tile.emphasis }]">
+              <div class="kpi-tile-copy">
+                <span>{{ tile.label }}</span>
+                <strong>{{ tile.value }}</strong>
+                <small>{{ tile.detail }}</small>
+              </div>
+              <div v-if="tile.available" class="kpi-mini-bars" aria-hidden="true">
+                <span v-for="bar in tile.bars" :key="bar.id" :class="bar.phase" :style="{ height: bar.height + 'px' }"></span>
+              </div>
+            </article>
+          </section>
+
+          <div class="dashboard-grid">
+            <section class="panel chart-panel" aria-labelledby="chart-title">
+              <div class="chart-heading">
                 <div>
-                  <h2>Évolution par trimestre</h2>
-                  <span>Comparaison des principaux flux comptables</span>
+                  <h2 id="chart-title">Évolution par trimestre</h2>
+                  <span>Chaque trimestre, un mouvement</span>
                 </div>
-                <div class="chart-legend" aria-label="Légende du graphique">
-                  <span><i class="students"></i>Facturation élèves</span>
-                  <span><i class="teachers"></i>Coût prestataires</span>
-                  <span><i class="subsidy"></i>Subvention calculée</span>
-                  <span><i class="expenses"></i>Dépenses</span>
+                <div class="chart-legend" aria-hidden="true">
+                  <span v-for="series in DASHBOARD_SERIES" :key="series.key"><i :class="series.className"></i>{{ series.label }}</span>
                 </div>
               </div>
-              <div class="dashboard-bars" role="img" aria-label="Comparaison des montants par trimestre">
-                <div v-for="term in dashboardTerms" :key="term.id" class="dashboard-bar-group" :class="{ current: term.automatic }">
-                  <div class="dashboard-bar-stage">
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.studentBilling) }}</small>
-                      <span class="dashboard-bar students" :style="{ height: dashboardBarHeight(term.studentBilling) }" :title="'Facturation élèves : ' + money(term.studentBilling)"></span>
-                    </span>
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.teacherDue) }}</small>
-                      <span class="dashboard-bar teachers" :style="{ height: dashboardBarHeight(term.teacherDue) }" :title="'Coût prestataires : ' + money(term.teacherDue)"></span>
-                    </span>
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.subsidy) }}</small>
-                      <span class="dashboard-bar subsidy" :style="{ height: dashboardBarHeight(term.subsidy) }" :title="'Subvention calculée : ' + money(term.subsidy)"></span>
-                    </span>
-                    <span class="dashboard-bar-column">
-                      <small>{{ money(term.expenses) }}</small>
-                      <span class="dashboard-bar expenses" :style="{ height: dashboardBarHeight(term.expenses) }" :title="'Dépenses : ' + money(term.expenses)"></span>
-                    </span>
+              <div class="staff-chart" role="img" :aria-label="'Montants par trimestre. ' + dashboardChartSummary">
+                <div class="staff-axis">
+                  <span v-for="(tick, index) in dashboardChartScale.ticks" :key="tick" :style="{ '--i': index }">{{ wholeEuros(tick) }}</span>
+                </div>
+                <div class="staff-plot">
+                  <div class="staff-lines"><i v-for="line in 5" :key="line"></i></div>
+                  <div class="staff-groups" :style="{ gridTemplateColumns: 'repeat(' + dashboardTerms.length + ', minmax(0, 1fr))' }">
+                    <div v-for="term in dashboardTerms" :key="term.id" :class="['staff-group', { current: term.phase === 'current' }]">
+                      <div v-for="series in DASHBOARD_SERIES" :key="series.key" class="staff-bar">
+                        <span class="staff-value">{{ dashboardSeriesValue(term, series) === null ? '' : wholeEuros(dashboardSeriesValue(term, series)) }}</span>
+                        <span :class="['staff-fill', series.className]" :style="{ height: dashboardBarHeight(dashboardSeriesValue(term, series)) }"></span>
+                      </div>
+                    </div>
                   </div>
+                </div>
+              </div>
+              <div class="staff-terms" :style="{ '--terms': dashboardTerms.length, gridTemplateColumns: '52px repeat(' + dashboardTerms.length + ', minmax(0, 1fr))' }">
+                <span></span>
+                <div v-for="term in dashboardTerms" :key="term.id" class="staff-term">
                   <strong>{{ term.name }}</strong>
-                  <small>Semaines {{ term.startWeek }} à {{ term.endWeek }}</small>
-                  <em :class="{ current: term.automatic }">{{ dashboardTermStatus(term) }}</em>
+                  <span>S{{ term.startWeek }} → S{{ term.endWeek }}</span>
+                  <em :class="term.phase">{{ DASHBOARD_PHASE_LABELS[term.phase] }}</em>
                 </div>
               </div>
             </section>
 
-            <section class="panel annual-donut-panel">
-              <div class="annual-panel-heading">
-                <div>
-                  <h2>Répartition des sorties</h2>
-                  <span>Cumul annuel à ce jour</span>
-                </div>
+            <section class="panel outflow-panel" aria-labelledby="outflow-title">
+              <div>
+                <h2 id="outflow-title">Répartition des sorties</h2>
+                <span class="panel-subtitle">Cumul annuel à ce jour</span>
               </div>
-              <div class="dashboard-donut" :style="dashboardDonutStyle" role="img" :aria-label="'Subvention calculée ' + dashboardSubsidyShare.toFixed(0) + ' %, dépenses ' + (100 - dashboardSubsidyShare).toFixed(0) + ' %'">
-                <div>
-                  <strong>{{ money(dashboardOutflowTotal) }}</strong>
-                  <span>Total sorties</span>
-                </div>
+              <div class="outflow-total">
+                <strong>{{ billingMoney(dashboardOutflowTotal) }}</strong>
+                <span>Total des sorties</span>
               </div>
-              <div class="donut-legend">
-                <div><i class="subsidy"></i><span>Subvention calculée<strong>{{ billingMoney(annualDashboardTotals.subsidy) }} · {{ dashboardSubsidyShare.toFixed(0) }} %</strong></span></div>
-                <div><i class="expenses"></i><span>Dépenses<strong>{{ money(annualDashboardTotals.expenses) }} · {{ (100 - dashboardSubsidyShare).toFixed(0) }} %</strong></span></div>
+              <div v-if="billingStatus === 'ready'" class="outflow-bar" role="img" :aria-label="'Subvention ' + dashboardSubsidyShare.toFixed(0) + ' %, dépenses ' + (dashboardOutflowTotal > 0 ? 100 - dashboardSubsidyShare : 0).toFixed(0) + ' %'">
+                <span v-if="dashboardSubsidyShare > 0" class="subsidy" :style="{ width: dashboardSubsidyShare + '%' }"></span>
+                <span v-if="dashboardOutflowTotal > 0 && dashboardSubsidyShare < 100" class="expenses" :style="{ width: (100 - dashboardSubsidyShare) + '%' }"></span>
+              </div>
+              <div class="outflow-list">
+                <div>
+                  <span><i class="subsidy"></i>Subvention calculée</span>
+                  <span><strong>{{ billingMoney(annualDashboardTotals.subsidy) }}</strong><span v-if="billingStatus === 'ready'" class="muted"> · {{ dashboardSubsidyShare.toFixed(0) }} %</span></span>
+                </div>
+                <div>
+                  <span><i class="expenses"></i>Dépenses</span>
+                  <span><strong>{{ money(annualDashboardTotals.expenses) }}</strong><span v-if="billingStatus === 'ready'" class="muted"> · {{ (dashboardOutflowTotal > 0 ? 100 - dashboardSubsidyShare : 0).toFixed(0) }} %</span></span>
+                </div>
               </div>
             </section>
-          </div>
-
-          <div class="term-summary-grid" aria-label="Indicateurs par trimestre">
-            <button
-              v-for="term in dashboardTerms"
-              :key="term.id"
-              type="button"
-              class="term-summary-card"
-              :class="{ selected: term.selected }"
-              @click="selectedTermId = term.id"
-            >
-              <span class="term-summary-heading">
-                <span><strong>{{ term.name }}</strong><small>Semaines {{ term.startWeek }} à {{ term.endWeek }}</small></span>
-                <em :class="{ current: term.automatic }">{{ dashboardTermStatus(term) }}</em>
-              </span>
-              <span class="term-summary-values">
-                <span>Facturation<strong>{{ billingMoney(term.studentBilling) }}</strong></span>
-                <span>Prestataires<strong>{{ billingMoney(term.teacherDue) }}</strong></span>
-                <span>Dépenses<strong>{{ money(term.expenses) }}</strong></span>
-                <span>Subvention<strong>{{ billingMoney(term.subsidy) }}</strong></span>
-              </span>
-            </button>
           </div>
 
           <section class="panel provider-activity-panel" aria-labelledby="provider-activity-title">
             <div class="provider-activity-heading">
               <div>
-                <span class="section-kicker">{{ selectedTerm.name }}</span>
+                <span class="section-kicker">{{ selectedTerm?.name }} · semaines {{ selectedTerm?.startWeek }} à {{ selectedTerm?.endWeek }}</span>
                 <h2 id="provider-activity-title">Activité des prestataires</h2>
-                <p>Heures réalisées et avancement de la facturation pour la période sélectionnée.</p>
               </div>
-              <div class="provider-activity-totals" aria-label="Totaux de la période">
-                <span><small>Heures données</small><strong>{{ hoursLabel(dashboardTeacherActivityTotals.hours) }}</strong></span>
-                <span><small>Déjà facturé</small><strong>{{ billingMoney(dashboardTeacherActivityTotals.issued) }}</strong></span>
-                <span class="remaining"><small>À facturer</small><strong>{{ billingMoney(dashboardTeacherActivityTotals.remaining) }}</strong></span>
-              </div>
+              <dl class="provider-activity-totals">
+                <div><dt>Heures données</dt><dd>{{ hoursLabel(dashboardTeacherActivityTotals.hours) }}</dd></div>
+                <div><dt>Déjà facturé</dt><dd>{{ billingMoney(dashboardTeacherActivityTotals.issued) }}</dd></div>
+                <div class="remaining"><dt>À facturer</dt><dd>{{ billingMoney(dashboardTeacherActivityTotals.remaining) }}</dd></div>
+              </dl>
             </div>
 
-            <div v-if="dashboardTeacherActivity.length" class="provider-activity-list">
-              <div class="provider-activity-columns" aria-hidden="true">
-                <span>Prestataire</span><span>Heures données</span><span>Déjà facturé</span><span>À facturer</span><span>Avancement</span><span></span>
-              </div>
-              <article v-for="activity in dashboardTeacherActivity" :key="activity.teacherId" class="provider-activity-row">
-                <div class="provider-identity">
-                  <span class="provider-avatar" aria-hidden="true">{{ activity.teacher.firstName?.charAt(0) }}{{ activity.teacher.lastName?.charAt(0) }}</span>
-                  <span><strong>{{ fullName(activity.teacher) }}</strong><small>{{ activity.teacher.instrument || 'Prestataire' }}</small></span>
-                </div>
-                <div class="provider-metric"><small>Heures données</small><strong>{{ hoursLabel(activity.totalHours) }}</strong></div>
-                <div class="provider-metric"><small>Déjà facturé</small><strong>{{ billingMoney(activity.issuedAmount) }}</strong></div>
-                <div class="provider-metric remaining"><small>À facturer</small><strong>{{ billingMoney(activity.remainingAmount) }}</strong></div>
-                <div class="provider-progress">
-                  <span><small>Avancement</small><strong>{{ activity.issuedPercent.toFixed(0) }} %</strong></span>
-                  <span class="provider-progress-track" role="progressbar" :aria-label="'Facturation de ' + fullName(activity.teacher)" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="activity.issuedPercent.toFixed(0)">
-                    <i class="issued" :style="{ width: activity.issuedPercent + '%' }"></i>
-                  </span>
-                </div>
-                <button v-if="canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="provider-billing-link" @click="openBilling('providers')">Facturation</button>
-              </article>
-            </div>
+            <table v-if="dashboardTeacherActivity.length" class="provider-table">
+              <thead>
+                <tr>
+                  <th scope="col">Prestataire</th>
+                  <th scope="col" class="num">Heures</th>
+                  <th scope="col" class="num">Déjà facturé</th>
+                  <th scope="col" class="num">À facturer</th>
+                  <th scope="col" class="progress-col">Avancement</th>
+                  <th scope="col"><span class="visually-hidden">Action</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(activity, index) in dashboardTeacherActivity" :key="activity.teacherId">
+                  <td data-label="Prestataire">
+                    <span class="provider-identity">
+                      <span :class="['provider-avatar', { alt: index % 2 === 1 }]" aria-hidden="true">{{ activity.teacher.firstName?.charAt(0) }}{{ activity.teacher.lastName?.charAt(0) }}</span>
+                      <span><strong>{{ fullName(activity.teacher) }}</strong><small>{{ activity.teacher.instrument || 'Prestataire' }}</small></span>
+                    </span>
+                  </td>
+                  <td class="num" data-label="Heures">{{ hoursLabel(activity.totalHours) }}</td>
+                  <td class="num" data-label="Déjà facturé">{{ billingMoney(activity.issuedAmount) }}</td>
+                  <td class="num remaining" data-label="À facturer">{{ billingMoney(activity.remainingAmount) }}</td>
+                  <td data-label="Avancement">
+                    <span class="provider-progress">
+                      <span class="provider-progress-track" role="progressbar" :aria-label="'Facturation de ' + fullName(activity.teacher)" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="activity.issuedPercent.toFixed(0)">
+                        <i :style="{ width: activity.issuedPercent + '%' }"></i>
+                      </span>
+                      <strong>{{ activity.issuedPercent.toFixed(0) }} %</strong>
+                    </span>
+                  </td>
+                  <td class="action">
+                    <button v-if="canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="link-button" @click="openBilling('providers')">Facturer</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
             <div v-else class="provider-activity-empty">
               <strong>Aucune heure enregistrée</strong>
               <span>Les heures réalisées par les prestataires apparaîtront ici.</span>
@@ -4147,121 +4641,188 @@ const app = createApp({
           </section>
         </section>
 
-        <section v-if="activeView === 'attendance' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack">
+        <section v-if="activeView === 'attendance' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack attendance-view">
           <div class="attendance-toolbar">
             <label class="attendance-teacher-filter">
-              <span>Professeur</span>
+              <span class="visually-hidden">Professeur</span>
               <select v-model="attendanceTeacherFilterId" aria-label="Filtrer les présences par professeur">
                 <option value="">Tous les professeurs</option>
                 <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
               </select>
             </label>
-            <div class="attendance-legend" aria-label="Légende des présences">
-              <span><i class="legend-dot unrecorded"></i>Non renseigné</span>
-              <span><i class="legend-dot present">1</i>Présent</span>
-              <span><i class="legend-dot absent">–</i>Absent</span>
-              <span><i class="legend-dot cancelled">×</i>Annulé</span>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Cours individuels</h2>
-                <span>Tous les élèves du trimestre, une case par semaine</span>
-              </div>
-            </div>
-            <div class="attendance-table-wrap">
-              <table class="attendance-table">
-                <thead>
-                  <tr>
-                    <th class="sticky-col wide">Élève</th>
-                    <th>Créneau</th>
-                    <th>Prof</th>
-                    <th v-for="week in weeks" :key="week" :class="['week-head', { holiday: isHolidayWeek(week) }]">S{{ week }}</th>
-                    <th class="num">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in attendanceCourseRows" :key="row.course.id">
-                    <td class="sticky-col wide">
-                      <strong>{{ fullName(row.musician) }}</strong>
-                      <small>{{ row.course.instrument }}</small>
-                    </td>
-                    <td>{{ row.course.weekday }} {{ row.course.startTime }}</td>
-                    <td>{{ row.teacher.firstName }}</td>
-                    <td v-for="week in weeks" :key="week" :class="['presence-cell', { holiday: isHolidayWeek(week) }]">
-                      <button
-                        :class="['attendance-state', attendanceStatus('individualCourse', row.course.id, week).toLowerCase()]"
-                        @click="toggleAttendance('individualCourse', row.course.id, week)"
-                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('individualCourse', row.course.id, week) || isAttendanceLocked('individualCourse', row.course.id, week)"
-                        :aria-label="'Présence ' + fullName(row.musician) + ' semaine ' + week + ' : ' + attendanceStatus('individualCourse', row.course.id, week)"
-                        :title="attendanceTitle('individualCourse', row.course.id, week)"
-                      >
-                        {{ isAttendanceLocked('individualCourse', row.course.id, week) ? '🔒' : attendanceSymbol('individualCourse', row.course.id, week) }}
-                      </button>
-                      <small class="session-date-label">{{ attendanceDateLabel('individualCourse', row.course.id, week) }}</small>
-                    </td>
-                    <td class="num">{{ row.count }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <ul class="attendance-legend" aria-label="Légende des présences">
+              <li><span class="att-glyph present" aria-hidden="true"></span>Présent</li>
+              <li><span class="att-glyph absent" aria-hidden="true"></span>Absent</li>
+              <li><span class="att-glyph cancelled" aria-hidden="true"></span>Annulé</li>
+              <li><span class="att-glyph unrecorded" aria-hidden="true"></span>Non renseigné</li>
+              <li><span class="legend-hatch" aria-hidden="true"></span>Vacances (saisie possible)</li>
+              <li><svg class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>Facturée</li>
+            </ul>
+            <span v-if="can('PRESENCE_WRITE')" class="attendance-hint">Un clic fait défiler : présent → absent → annulé</span>
           </div>
 
-          <div class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Groupes de travail</h2>
-                <span>Une séance cochée vaut 1h15 pour le professeur</span>
-              </div>
-            </div>
-            <div class="attendance-table-wrap">
-              <table class="attendance-table">
+          <section class="attendance-card" aria-label="Grille des présences du trimestre">
+            <div v-if="attendanceGroups.length" class="attendance-scroll">
+              <table class="attendance-grid" :style="{ '--weeks': weeks.length }">
+                <colgroup>
+                  <col class="col-session" />
+                  <col v-for="week in weeks" :key="week" />
+                  <col class="col-total" />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th class="sticky-col wide">Groupe</th>
-                    <th>Jour</th>
-                    <th>Prof</th>
-                    <th v-for="week in weeks" :key="week" :class="['week-head', { holiday: isHolidayWeek(week) }]">S{{ week }}</th>
-                    <th class="num">Total</th>
+                    <th scope="col" class="session-head">Séance</th>
+                    <th
+                      v-for="week in weeks"
+                      :key="week"
+                      scope="col"
+                      :class="['week-head', { current: week === currentAttendanceWeek, holiday: isHolidayWeek(week) }]"
+                      :title="isHolidayWeek(week) ? 'Semaine ' + week + ' · vacances' : 'Semaine ' + week"
+                    >
+                      <span class="visually-hidden">Semaine </span>{{ week === currentAttendanceWeek ? 'S' + week : week }}
+                    </th>
+                    <th scope="col" class="total-head">Total</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr v-for="row in attendanceWorkshopRows" :key="row.band.id">
-                    <td class="sticky-col wide">
-                      <strong>{{ row.band.name }}</strong>
-                      <small>{{ memberCount(row.band) }} membres</small>
-                    </td>
-                    <td>{{ row.band.weekday || '-' }}</td>
-                    <td>{{ row.teacher?.firstName || '-' }}</td>
-                    <td v-for="week in weeks" :key="week" :class="['presence-cell', { holiday: isHolidayWeek(week) }]">
+                <tbody v-for="group in attendanceGroups" :key="group.key">
+                  <tr class="attendance-group-row">
+                    <th :colspan="weeks.length + 2" scope="colgroup">
+                      <strong>{{ group.title }}</strong>
+                      <span>{{ group.subtitle }}</span>
+                    </th>
+                  </tr>
+                  <tr v-for="row in group.rows" :key="row.key" class="attendance-row">
+                    <th scope="row" class="session-cell">
+                      <span class="session-time">{{ row.time }}</span>
+                      <span class="session-copy">
+                        <strong>{{ row.name }}</strong>
+                        <span>{{ row.detail }}</span>
+                      </span>
+                    </th>
+                    <td
+                      v-for="week in weeks"
+                      :key="week"
+                      :class="['att-cell', { current: week === currentAttendanceWeek, holiday: isHolidayWeek(week) }]"
+                    >
                       <button
-                        :class="['attendance-state', attendanceStatus('workshop', row.band.id, week).toLowerCase()]"
-                        @click="toggleAttendance('workshop', row.band.id, week)"
-                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving('workshop', row.band.id, week) || isAttendanceLocked('workshop', row.band.id, week)"
-                        :aria-label="'Séance ' + row.band.name + ' semaine ' + week + ' : ' + attendanceStatus('workshop', row.band.id, week)"
-                        :title="attendanceTitle('workshop', row.band.id, week)"
+                        type="button"
+                        :class="['att-button', { locked: isAttendanceLocked(row.entityType, row.entityId, week), saving: isAttendanceSaving(row.entityType, row.entityId, week) }]"
+                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving(row.entityType, row.entityId, week) || isAttendanceLocked(row.entityType, row.entityId, week)"
+                        :aria-label="attendanceCellLabel(row, week)"
+                        :title="attendanceCellTitle(row, week)"
+                        @click="toggleAttendance(row.entityType, row.entityId, week)"
                       >
-                        {{ isAttendanceLocked('workshop', row.band.id, week) ? '🔒' : attendanceSymbol('workshop', row.band.id, week) }}
+                        <span :class="['att-glyph', attendanceStatus(row.entityType, row.entityId, week).toLowerCase()]" aria-hidden="true"></span>
+                        <svg v-if="isAttendanceLocked(row.entityType, row.entityId, week)" class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>
                       </button>
-                      <small class="session-date-label">{{ attendanceDateLabel('workshop', row.band.id, week) }}</small>
                     </td>
-                    <td class="num">{{ row.count }}</td>
+                    <td class="total-cell">
+                      <strong>{{ row.count }}</strong>
+                      <span>{{ row.count > 1 ? 'séances' : 'séance' }}</span>
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
-          </div>
+            <div v-else class="attendance-empty">
+              <strong>Aucune séance à afficher</strong>
+              <span>{{ attendanceTeacherFilterId ? 'Ce professeur n’a ni cours ni atelier sur le trimestre.' : 'Ajoutez des cours individuels ou des ateliers pour remplir la grille.' }}</span>
+            </div>
+            <footer v-if="attendanceGroups.length" class="attendance-footer">
+              <span v-if="attendanceWeekSummary">
+                Semaine {{ attendanceWeekSummary.week }} ·
+                <strong>{{ countLabel(attendanceWeekSummary.PRESENT, 'présent') }}</strong> ·
+                {{ countLabel(attendanceWeekSummary.ABSENT, 'absent') }} ·
+                {{ attendanceWeekSummary.UNRECORDED }} à renseigner
+              </span>
+              <span v-else></span>
+              <span class="attendance-total">
+                Séances présentes du trimestre
+                <strong>{{ attendanceTotalPresent }}</strong>
+              </span>
+            </footer>
+          </section>
         </section>
 
         <section v-if="activeView === 'signatures' && !mustChangePassword && can('PRESENCE_READ')" class="view-stack printable-view">
+          <section v-if="dayEntryWeekValue" class="day-entry" aria-label="Émargement du jour">
+            <div class="day-entry-week">
+              <button type="button" class="day-entry-arrow" aria-label="Semaine précédente" :disabled="weeks.indexOf(dayEntryWeekValue) <= 0" @click="shiftDayEntryWeek(-1)">
+                <svg aria-hidden="true"><use href="#icon-chevron-left"></use></svg>
+              </button>
+              <span class="day-entry-week-label">
+                <strong>Semaine {{ dayEntryWeekValue }}</strong>
+                <span>{{ dayEntryWeekLabel }}</span>
+              </span>
+              <button type="button" class="day-entry-arrow" aria-label="Semaine suivante" :disabled="weeks.indexOf(dayEntryWeekValue) >= weeks.length - 1" @click="shiftDayEntryWeek(1)">
+                <svg aria-hidden="true"><use href="#icon-chevron-right"></use></svg>
+              </button>
+            </div>
+            <div class="day-entry-days" role="group" aria-label="Jour">
+              <button
+                v-for="day in dayEntryDays"
+                :key="day.name"
+                type="button"
+                :aria-pressed="day.name === dayEntryDayValue ? 'true' : 'false'"
+                :aria-label="day.name + ' ' + day.number + (day.pending ? ', séances à renseigner' : '')"
+                @click="dayEntryDay = day.name"
+              >
+                <span>{{ day.short }}</span>
+                <strong>{{ day.number }}</strong>
+                <i v-if="day.pending" class="day-pending-dot" aria-hidden="true"></i>
+              </button>
+            </div>
+            <div class="day-entry-title">
+              <h2>{{ dayEntryTitle }}</h2>
+              <span>{{ countLabel(dayEntrySessions.length, 'séance') }}</span>
+            </div>
+            <p v-if="isHolidayWeek(dayEntryWeekValue)" class="day-entry-note">Semaine de vacances : la saisie reste possible.</p>
+            <article
+              v-for="session in dayEntrySessions"
+              :key="session.key"
+              :class="['day-card', { pending: attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue) === 'UNRECORDED' }]"
+            >
+              <div class="day-card-head">
+                <span class="day-card-time">{{ session.time }}</span>
+                <span class="day-card-copy">
+                  <strong>{{ session.name }}</strong>
+                  <span>{{ session.detail }}</span>
+                </span>
+                <span v-if="isAttendanceLocked(session.entityType, session.entityId, dayEntryWeekValue)" class="day-card-pill locked" :title="attendanceTitle(session.entityType, session.entityId, dayEntryWeekValue)">
+                  <svg class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>Facturée
+                </span>
+                <span v-else-if="attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue) === 'UNRECORDED'" class="day-card-pill">À renseigner</span>
+              </div>
+              <div class="day-card-choices" role="group" :aria-label="'Présence : ' + session.name">
+                <button
+                  v-for="choice in DAY_ENTRY_CHOICES"
+                  :key="choice.value"
+                  type="button"
+                  :class="['day-choice', choice.value.toLowerCase()]"
+                  :aria-pressed="attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue) === choice.value ? 'true' : 'false'"
+                  :disabled="!can('PRESENCE_WRITE') || isAttendanceLocked(session.entityType, session.entityId, dayEntryWeekValue) || isAttendanceSaving(session.entityType, session.entityId, dayEntryWeekValue)"
+                  @click="setAttendanceStatus(session.entityType, session.entityId, dayEntryWeekValue, choice.value)"
+                >{{ choice.label }}</button>
+              </div>
+            </article>
+            <p v-if="!dayEntrySessions.length" class="day-entry-empty">Aucune séance ce jour-là.</p>
+            <div v-if="dayEntrySessions.length" class="day-entry-footer">
+              <span><strong>{{ dayEntryRecorded }} sur {{ dayEntrySessions.length }}</strong> séances renseignées</span>
+              <span v-if="can('PRESENCE_WRITE')" :class="['save-indicator', { saving: attendanceSaving }]" role="status">
+                {{ attendanceSaving ? 'Enregistrement…' : 'Enregistré automatiquement' }}
+              </span>
+            </div>
+          </section>
           <section class="panel signature-page">
             <div class="panel-head">
               <div>
                 <h2>Feuilles d'émargement</h2>
                 <span>{{ selectedTerm.name }} {{ state.settings.year }} - une feuille par professeur</span>
               </div>
-              <button class="primary-button no-print" @click="printPage">Imprimer</button>
+              <button class="primary-button no-print" @click="printPage">
+                <svg aria-hidden="true"><use href="#icon-print"></use></svg>
+                Imprimer
+              </button>
             </div>
 
             <div v-if="signatureSheetSections.length" class="signature-stack">
@@ -4271,7 +4832,7 @@ const app = createApp({
                     <h3>{{ fullName(section.teacher) }}</h3>
                     <span>{{ section.teacher.instrument }}</span>
                   </div>
-                  <strong>{{ selectedTerm.name }} {{ state.settings.year }}</strong>
+                  <strong>{{ selectedTerm.name }} · {{ state.settings.year }}</strong>
                 </div>
                 <div class="signature-table-wrap">
                   <table class="signature-table">
@@ -4287,7 +4848,7 @@ const app = createApp({
                           <template v-else>
                             <span>{{ item.band.weekday || 'Groupe' }}</span>
                             <strong>{{ item.band.name }}</strong>
-                            <small>Groupe de travail</small>
+                            <small class="signature-kind">Atelier</small>
                           </template>
                         </th>
                       </tr>
@@ -4331,10 +4892,11 @@ const app = createApp({
                   <tr v-for="row in scheduleRows" :key="row.slot">
                     <th scope="row">{{ row.slot }}</th>
                     <td v-for="slot in row.days" :key="slot.key" :class="{ occupied: slot.courses.length }">
-                      <strong v-if="slot.musicians.length">{{ slot.musicians.map(fullName).join(', ') }}</strong>
-                      <span v-else class="muted">Libre</span>
-                      <small v-if="slot.teachers.length">{{ slot.teachers.map(fullName).join(', ') }}{{ slot.sharedSlot ? ' - partagé' : '' }}</small>
-                      <small v-else>Salle libre</small>
+                      <template v-if="slot.courses.length">
+                        <strong>{{ slot.musicians.map(fullName).join(', ') }}</strong>
+                        <small>{{ slot.teachers.map(fullName).join(', ') }}{{ slot.sharedSlot ? ' · partagé' : '' }}</small>
+                      </template>
+                      <span v-else class="slot-free">Libre</span>
                     </td>
                   </tr>
                 </tbody>
@@ -4383,7 +4945,7 @@ const app = createApp({
                   <div class="bucket-list">
                     <article v-for="band in musicianSelectedBands" :key="band.id" class="bucket-item">
                       <span>{{ band.name }}</span>
-                      <button @click="removeMusicianBand(band.id)" :aria-label="'Retirer ' + band.name">x</button>
+                      <button @click="removeMusicianBand(band.id)" :aria-label="'Retirer ' + band.name"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
                     </article>
                     <p v-if="!musicianSelectedBands.length" class="empty-state">Aucun groupe musical</p>
                   </div>
@@ -4593,7 +5155,7 @@ const app = createApp({
                     <div class="bucket-list tall">
                       <article v-for="musician in selectedGroupMembers" :key="musician.id" class="bucket-item">
                         <span>{{ fullName(musician) }}</span>
-                        <button v-if="can('GROUPS_WRITE')" @click="removeGroupMember(musician.id)" :aria-label="'Retirer ' + fullName(musician)">x</button>
+                        <button v-if="can('GROUPS_WRITE')" @click="removeGroupMember(musician.id)" :aria-label="'Retirer ' + fullName(musician)"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
                       </article>
                       <p v-if="!selectedGroupMembers.length" class="empty-state">Aucun membre sélectionné</p>
                     </div>
@@ -4611,20 +5173,22 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'expenses' && !mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" class="view-stack">
-          <div class="kpi-grid expense-kpi-grid">
-            <article class="kpi">
-              <span>Total annuel</span>
-              <strong>{{ money(totals.annualExpenses) }}</strong>
-              <small>{{ state.settings.year }}</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
+          <section class="kpi-tiles expense-kpi-tiles" aria-label="Totaux des dépenses">
+            <article class="kpi-tile">
+              <div class="kpi-tile-copy">
+                <span>Total annuel</span>
+                <strong>{{ money(totals.annualExpenses) }}</strong>
+                <small>{{ state.settings.year }}</small>
+              </div>
             </article>
-            <article v-for="category in expenseTotalsByCategory" :key="category.value" class="kpi">
-              <span>{{ category.label }}</span>
-              <strong>{{ money(category.total) }}</strong>
-              <small>Dépenses saisies</small>
-              <img class="kpi-signal" src="/src/assets/kpi-meter-orange.png" alt="" aria-hidden="true" />
+            <article v-for="category in expenseTotalsByCategory" :key="category.value" class="kpi-tile">
+              <div class="kpi-tile-copy">
+                <span>{{ category.label }}</span>
+                <strong>{{ money(category.total) }}</strong>
+                <small>Dépenses saisies</small>
+              </div>
             </article>
-          </div>
+          </section>
 
           <section v-if="can('EXPENSES_WRITE')" class="panel">
             <div class="panel-head">
@@ -4708,7 +5272,7 @@ const app = createApp({
           <div class="document-workflow-note">
             <strong>1. Prévisualiser et corriger</strong>
             <span>Les PDF restent des brouillons régénérables.</span>
-            <i class="ph ph-arrow-right" aria-hidden="true"></i>
+            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
             <strong>2. Valider définitivement</strong>
             <span>Les documents validés sont ensuite figés.</span>
           </div>
@@ -4788,10 +5352,11 @@ const app = createApp({
                     <td class="num">{{ billingMoney(row.groupFee) }}</td>
                     <td class="num">{{ billingMoney(row.totalDue) }}</td>
                     <td>
-                      <a v-if="documentForMusician(row.musician.id)?.fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForMusician(row.musician.id))">
-                        PDF · {{ documentStatusLabel(documentForMusician(row.musician.id).status) }}
-                      </a>
-                      <span v-else-if="documentForMusician(row.musician.id)" class="muted">Brouillon à régénérer</span>
+                      <span v-if="documentForMusician(row.musician.id)" class="document-cell">
+                        <span :class="['doc-pill', documentForMusician(row.musician.id).status.toLowerCase()]">{{ documentStatusLabel(documentForMusician(row.musician.id).status) }}</span>
+                        <a v-if="documentForMusician(row.musician.id).fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForMusician(row.musician.id))">PDF</a>
+                        <span v-else class="muted">à régénérer</span>
+                      </span>
                       <span v-else class="muted">Non généré</span>
                       <div v-if="documentForMusician(row.musician.id) && can('BILLING_PRINT')" class="document-row-actions">
                         <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="markDocumentSent(documentForMusician(row.musician.id))" :disabled="markingStudentInvoicesSent">Marquer envoyé</button>
@@ -4881,7 +5446,8 @@ const app = createApp({
                 <div v-if="finalizedDocumentsForTeacher(section.teacher.id).length" class="installment-history">
                   <strong>Historique des situations</strong>
                   <div v-for="document in finalizedDocumentsForTeacher(section.teacher.id)" :key="document.id" class="installment-row">
-                    <span>Situation n°{{ document.installmentNumber || 'historique' }} · S{{ document.periodStartWeek || selectedTerm.startWeek }}–S{{ document.periodEndWeek || selectedTerm.endWeek }} · {{ documentStatusLabel(document.status) }}</span>
+                    <span>Situation n°{{ document.installmentNumber || 'historique' }} · S{{ document.periodStartWeek || selectedTerm.startWeek }}–S{{ document.periodEndWeek || selectedTerm.endWeek }}</span>
+                    <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span>
                     <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">{{ document.documentNumber }}</a>
                     <div v-if="can('BILLING_PRINT')" class="document-row-actions">
                       <button v-if="document.status === 'GENERATED'" @click="markDocumentSent(document)">Marquer envoyé</button>
@@ -4897,7 +5463,7 @@ const app = createApp({
             <div class="panel-head"><div><h2>Historique des corrections</h2><span>Les originaux et avoirs restent consultables</span></div></div>
             <div class="document-history-list">
               <article v-for="document in documentHistory" :key="document.id">
-                <div><strong>{{ document.documentNumber }}</strong><span>{{ documentStatusLabel(document.status) }} · {{ document.correctionReason }}</span></div>
+                <div><strong>{{ document.documentNumber }} <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span></strong><span>{{ document.correctionReason }}</span></div>
                 <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">PDF</a>
               </article>
             </div>
@@ -5048,6 +5614,24 @@ const app = createApp({
             <p class="form-help" :class="{ ready: avatarFile }">{{ avatarFile ? 'Cliquez sur « Changer l’avatar » pour recadrer la photo avant de l’envoyer.' : 'Choisissez une image PNG, JPEG ou WebP (10 Mo maximum).' }}</p>
           </section>
 
+          <section v-if="!mustChangePassword" class="panel appearance-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Apparence</h2>
+                <span>Auto suit le réglage clair ou sombre du système · choix mémorisé sur cet appareil</span>
+              </div>
+              <div class="segmented" role="group" aria-label="Thème de l’interface">
+                <button
+                  v-for="choice in THEME_CHOICES"
+                  :key="choice.value"
+                  type="button"
+                  :aria-pressed="themePreference === choice.value ? 'true' : 'false'"
+                  @click="setThemePreference(choice.value)"
+                >{{ choice.label }}</button>
+              </div>
+            </div>
+          </section>
+
           <section v-if="can('ACCOUNT_USER') && !mustChangePassword" class="panel security-panel">
             <div class="panel-head">
               <div>
@@ -5056,7 +5640,7 @@ const app = createApp({
                 <span>Codes temporaires compatibles avec les applications TOTP</span>
               </div>
               <span :class="['security-status', twoFactorStatus?.enabled ? 'enabled' : 'disabled']">
-                <i :class="twoFactorStatus?.enabled ? 'ph ph-shield-check' : 'ph ph-shield-warning'" aria-hidden="true"></i>
+                <svg class="icon" aria-hidden="true"><use :href="twoFactorStatus?.enabled ? '#icon-shield-check' : '#icon-shield-warning'"></use></svg>
                 {{ twoFactorStatus?.enabled ? 'Activée' : 'Non activée' }}
               </span>
             </div>
@@ -5078,7 +5662,7 @@ const app = createApp({
                 </div>
               </div>
               <div v-if="isAdministrator" class="security-callout compact">
-                <i class="ph ph-lock-key" aria-hidden="true"></i>
+                <svg class="icon" aria-hidden="true"><use href="#icon-lock"></use></svg>
                 <div><strong>Protection obligatoire</strong><p>La double authentification ne peut pas être désactivée durablement sur un compte administrateur.</p></div>
               </div>
               <div class="mfa-actions">
@@ -5107,7 +5691,7 @@ const app = createApp({
 
             <template v-else>
               <div class="security-callout optional">
-                <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                <svg class="icon" aria-hidden="true"><use href="#icon-device-mobile"></use></svg>
                 <div>
                   <strong>{{ isAdministrator ? 'Activation requise' : 'Renforcez la sécurité de votre compte' }}</strong>
                   <p>{{ isAdministrator ? 'Terminez l’enrôlement pour poursuivre.' : 'Cette protection est facultative pour un compte non administrateur et fortement recommandée.' }}</p>
@@ -5407,8 +5991,8 @@ const app = createApp({
         <section v-if="activeView === 'settings' && !mustChangePassword && canAccessSettings" class="view-stack">
           <section v-if="can('CONFIG_FINANCIALS')" class="panel lifecycle-panel">
             <div>
-              <span class="eyebrow">Cycle comptable {{ state.settings.year }}</span>
-              <h2>{{ yearStatusLabel }}</h2>
+              <span class="eyebrow">Cycle comptable</span>
+              <h2 class="lifecycle-title">Saison {{ state.settings.year }} <span :class="['year-pill', yearStatus.toLowerCase()]">{{ yearStatusLabel }}</span></h2>
               <p v-if="yearStatus === 'OPEN'" class="muted">Configuration, présences, dépenses et documents modifiables.</p>
               <p v-else-if="yearStatus === 'REVIEWED'" class="muted">Configuration verrouillée ; présences, dépenses et émission encore disponibles.</p>
               <p v-else class="muted">Année définitivement clôturée ; toutes les données annuelles sont en lecture seule.</p>
@@ -5542,7 +6126,7 @@ const app = createApp({
             </div>
             <div class="term-grid">
               <article v-for="term in state.settings.terms" :key="term.id">
-                <strong>{{ term.name }}</strong>
+                <strong class="term-grid-name">{{ term.name }}</strong>
                 <label>Début <input type="number" v-model.number="term.startWeek" min="1" max="53" /></label>
                 <label>Fin <input type="number" v-model.number="term.endWeek" min="1" max="53" /></label>
               </article>
@@ -5575,7 +6159,7 @@ const app = createApp({
                 <div class="bucket-list holiday-bucket">
                   <article v-for="week in selectedHolidayWeeks" :key="week" class="bucket-item holiday-item">
                     <span>Semaine {{ week }}</span>
-                    <button @click="removeHolidayWeek(week)" :aria-label="'Retirer la semaine ' + week">x</button>
+                    <button @click="removeHolidayWeek(week)" :aria-label="'Retirer la semaine ' + week"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
                   </article>
                   <p v-if="!selectedHolidayWeeks.length" class="empty-state">Aucune semaine de vacances</p>
                 </div>
@@ -5618,10 +6202,34 @@ const app = createApp({
         </section>
         <div class="toast-stack" aria-live="polite">
           <div v-for="toast in toasts" :key="toast.id" :class="['toast', toast.type]">
-            {{ toast.message }}
+            <span class="toast-badge" aria-hidden="true"><svg><use :href="toast.type === 'success' ? '#icon-check' : toast.type === 'error' ? '#icon-x' : '#icon-warning'"></use></svg></span>
+            <span>{{ toast.message }}</span>
           </div>
         </div>
       </section>
+      <nav class="tab-bar" aria-label="Navigation mobile">
+        <button
+          v-for="tab in mobileTabs"
+          :key="tab.view"
+          type="button"
+          :class="{ active: activeView === tab.view && !mobileMenuOpen }"
+          :aria-current="activeView === tab.view ? 'page' : null"
+          @click="openNavView(tab.view)"
+        >
+          <svg aria-hidden="true"><use :href="'#icon-nav-' + tab.view"></use></svg>
+          {{ tab.label }}
+        </button>
+        <button
+          type="button"
+          :class="['tab-more', { active: mobileMenuOpen }]"
+          aria-controls="app-menu"
+          :aria-expanded="mobileMenuOpen ? 'true' : 'false'"
+          @click="mobileMenuOpen = !mobileMenuOpen"
+        >
+          <svg aria-hidden="true"><use href="#icon-more"></use></svg>
+          Plus
+        </button>
+      </nav>
       <avatar-crop-dialog :file="avatarCropFile" :busy="avatarUploading" :error="avatarUploadError" @cancel="cancelAvatarCrop" @confirm="uploadAvatar"></avatar-crop-dialog>
     </main>
   `,
