@@ -1,0 +1,217 @@
+/*
+ * Compta Zik — direction artistique « Partition »
+ * Jetons de design, thème clair + thème nuit.
+ *
+ * Référence : docs/design/partition.md
+ * À intégrer en tête de src/styles.css (ou à importer avant lui).
+ *
+ * Bascule de thème :
+ *   - automatique selon le système (prefers-color-scheme) ;
+ *   - forcée par <html data-theme="light"> ou <html data-theme="dark">.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Typographies (fichiers woff2 à vendoriser dans src/vendor/, voir partition.md) */
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-ui: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Surfaces */
+  --paper: #F4EFE6;          /* fond de page */
+  --paper-deep: #EDE6D8;     /* barre latérale, barre d'onglets mobile */
+  --card: #FFFCF6;           /* cartes, panneaux, tableaux */
+  --card-alt: #F8F4EC;       /* en-têtes de groupe, pieds de tableau */
+  --track: #EAE3D5;          /* fond des contrôles segmentés, rails de progression */
+
+  /* Filets */
+  --line: #DCD3C2;           /* bordures de cartes, séparateurs */
+  --line-soft: #E6DECF;      /* séparateurs de cellules (grille de présences) */
+  --line-strong: #13262C;    /* ligne d'en-tête de tableau, ligne 0 des graphiques */
+
+  /* Texte */
+  --ink: #13262C;            /* texte principal */
+  --ink-soft: #3A4B50;       /* texte secondaire fort, éléments de navigation */
+  --ink-muted: #56676C;      /* libellés, sous-titres */
+  --ink-faint: #7B8A8E;      /* libellés de groupe, axes (≥ 11 px, gras) */
+
+  /* Inversé (élément sélectionné d'un contrôle segmenté, toast) */
+  --inverse-bg: #13262C;
+  --inverse-ink: #FFFCF6;
+
+  /* Pétrole — action, présent */
+  --petrol: #0B5563;
+  --petrol-deep: #0B5563;    /* fond de la tuile « Subvention calculée » */
+  --on-petrol: #FFFCF6;      /* texte posé sur --petrol */
+  --on-petrol-muted: #CFE3E0;
+  --petrol-tint: #DCEBE9;
+  --petrol-tint-ink: #083C46;
+  --link: #0B5563;
+  --link-hover: #083C46;
+
+  /* Laiton — accent, attention, élément courant */
+  --brass: #C08A1E;
+  --brass-bright: #E0B45A;   /* repères « en cours » (point, mini-barre du trimestre courant) */
+  --brass-ink: #7E5608;      /* texte laiton sur fond clair */
+  --brass-tint: #F5E7C8;
+  --brass-tint-ink: #6B4806;
+  --on-brass: #FFFCF6;
+  --wordmark-accent: #A8760F; /* « Zik » du logotype */
+
+  /* Sauge — subvention */
+  --sage: #8DB5AE;
+
+  /* Brique — absence, erreur, suppression */
+  --brick: #A33A25;
+  --brick-tint: #F7E1DA;
+  --brick-tint-ink: #8A2E1C;
+
+  /* Séries de graphiques (ordre fixe) */
+  --series-students: #0B5563;
+  --series-teachers: #C08A1E;
+  --series-subsidy: #8DB5AE;
+  --series-expenses: #A33A25;
+
+  /* Présences */
+  --att-present: #0B5563;
+  --att-absent: #A33A25;
+  --att-cancelled: #8A969A;
+  --att-unrecorded: #B4AA98;
+  --att-current-week: rgba(224, 180, 90, 0.16);
+  --hatch: repeating-linear-gradient(135deg, #EDE5D6 0 3px, transparent 3px 6px);
+
+  /* Formes */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+  --control-height: 44px;    /* cible tactile minimale */
+  --control-height-lg: 48px;
+
+  /* Pas d'ombres portées dans Partition : filets fins uniquement.
+     --shadow reste défini pour les surcouches (modales, menus). */
+  --shadow-overlay: 0 18px 40px rgba(19, 38, 44, 0.14);
+
+  /* ---- Alias de transition vers les noms utilisés aujourd'hui dans src/styles.css ----
+     Ils permettent de basculer la palette sans tout réécrire d'un coup.
+     --nav n'est volontairement PAS aliasé : la barre latérale actuelle écrit du texte
+     blanc sur --nav ; elle doit être restylée en même temps (voir partition.md). */
+  --surface: var(--paper);
+  --panel: var(--card);
+  --muted: var(--ink-muted);
+  --accent: var(--petrol);
+  --accent-soft: var(--petrol-tint);
+  --warning: var(--brass);
+  --danger: var(--brick);
+  --shadow: none;
+}
+
+/* Thème nuit — automatique, sauf si l'utilisateur a forcé le clair */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0F1A1E;
+    --paper-deep: #0B1417;
+    --card: #16252A;
+    --card-alt: #1B2C31;
+    --track: #16252A;
+    --line: #2A3B40;
+    --line-soft: #22333A;
+    --line-strong: #93A3A5;
+    --ink: #EDE6D8;
+    --ink-soft: #BFC8C6;
+    --ink-muted: #93A3A5;
+    --ink-faint: #768689;
+    --inverse-bg: #EDE6D8;
+    --inverse-ink: #0F1A1E;
+    --petrol: #57A8AE;
+    --petrol-deep: #0E4550;
+    --on-petrol: #0B1417;
+    --on-petrol-muted: #A9CFCB;
+    --petrol-tint: #173A40;
+    --petrol-tint-ink: #9ED6D4;
+    --link: #7CC4C6;
+    --link-hover: #A9DCDC;
+    --brass: #D9A23A;
+    --brass-bright: #E0B45A;
+    --brass-ink: #E3B45C;
+    --brass-tint: #3A2E16;
+    --brass-tint-ink: #F0C979;
+    --on-brass: #0F1A1E;
+    --wordmark-accent: #E0B45A;
+    --sage: #A9CFC5;
+    --brick: #E0735C;
+    --brick-tint: #3A1E18;
+    --brick-tint-ink: #F2A08E;
+    --series-students: #3E8F99;
+    --series-teachers: #D9A23A;
+    --series-subsidy: #A9CFC5;
+    --series-expenses: #E0735C;
+    --att-present: #57A8AE;
+    --att-absent: #E0735C;
+    --att-cancelled: #8A9A9D;
+    --att-unrecorded: #55666A;
+    --att-current-week: rgba(224, 180, 90, 0.10);
+    --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+    --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Thème nuit — forcé */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0F1A1E;
+  --paper-deep: #0B1417;
+  --card: #16252A;
+  --card-alt: #1B2C31;
+  --track: #16252A;
+  --line: #2A3B40;
+  --line-soft: #22333A;
+  --line-strong: #93A3A5;
+  --ink: #EDE6D8;
+  --ink-soft: #BFC8C6;
+  --ink-muted: #93A3A5;
+  --ink-faint: #768689;
+  --inverse-bg: #EDE6D8;
+  --inverse-ink: #0F1A1E;
+  --petrol: #57A8AE;
+  --petrol-deep: #0E4550;
+  --on-petrol: #0B1417;
+  --on-petrol-muted: #A9CFCB;
+  --petrol-tint: #173A40;
+  --petrol-tint-ink: #9ED6D4;
+  --link: #7CC4C6;
+  --link-hover: #A9DCDC;
+  --brass: #D9A23A;
+  --brass-bright: #E0B45A;
+  --brass-ink: #E3B45C;
+  --brass-tint: #3A2E16;
+  --brass-tint-ink: #F0C979;
+  --on-brass: #0F1A1E;
+  --wordmark-accent: #E0B45A;
+  --sage: #A9CFC5;
+  --brick: #E0735C;
+  --brick-tint: #3A1E18;
+  --brick-tint-ink: #F2A08E;
+  --series-students: #3E8F99;
+  --series-teachers: #D9A23A;
+  --series-subsidy: #A9CFC5;
+  --series-expenses: #E0735C;
+  --att-present: #57A8AE;
+  --att-absent: #E0735C;
+  --att-cancelled: #8A9A9D;
+  --att-unrecorded: #55666A;
+  --att-current-week: rgba(224, 180, 90, 0.10);
+  --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+  --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
