@@ -938,14 +938,6 @@ const app = createApp({
     const groupFormDirty = computed(() => JSON.stringify(groupForm) !== groupFormSnapshot.value);
     const musicianFormDirty = computed(() => musicianFormOpen.value && JSON.stringify(musicianForm) !== musicianFormSnapshot.value);
 
-    const musicianSheetSummary = computed(() => {
-      const parts = [];
-      if (musicianForm.hasIndividualCourse) parts.push(`Cours de ${musicianForm.instrument || "musique"}`);
-      if (musicianForm.bandIds.length) parts.push(countLabel(musicianForm.bandIds.length, "groupe"));
-      const workshop = musicianForm.inWorkshop && state.bands.find((band) => band.id === musicianForm.workshopBandId);
-      if (workshop) parts.push(workshop.name);
-      return parts.join(" · ") || "Aucune activité";
-    });
 
     const selectedHolidayWeeks = computed(() => [...(state.settings.schoolHolidayWeeks || [])].sort((a, b) => a - b));
     const availableHolidayWeeks = computed(() => allYearWeeks.value.filter((week) => !selectedHolidayWeeks.value.includes(week)));
@@ -965,6 +957,15 @@ const app = createApp({
     const musicianRows = computed(() => filteredMusicians.value.map((musician) => (
       buildMusicianAccountingRow(musician, studentDraftsByMusicianId.value[musician.id])
     )));
+
+    // La fiche s'ouvre sous la ligne du musicien (en tête pour un nouveau, ou si la ligne est filtrée).
+    const musicianListItems = computed(() => {
+      const rows = musicianRows.value.map((row) => ({ kind: "row", key: row.musician.id, row }));
+      if (!musicianFormOpen.value || !can("MUSICIENS_WRITE")) return rows;
+      const sheet = { kind: "sheet", key: "musician-sheet" };
+      const index = editingMusicianId.value ? rows.findIndex((item) => item.key === editingMusicianId.value) : -1;
+      return index < 0 ? [sheet, ...rows] : [...rows.slice(0, index + 1), sheet, ...rows.slice(index + 1)];
+    });
 
     const studentBillingRows = computed(() => (billingSummary.value?.studentInvoices || [])
       .map((draft) => musiciansById.value[draft.musicianId] && buildMusicianAccountingRow(
@@ -1879,15 +1880,20 @@ const app = createApp({
       if (!confirmDiscardChanges(musicianFormDirty.value)) return false;
       resetMusicianForm();
       musicianFormOpen.value = true;
-      scrollToMusicianSheet();
+      if (musicianFilter.value === "archived") musicianFilter.value = "all";
+      revealMusicianSheet(null);
       return true;
     }
 
-    // Sur une colonne, la fiche s'ouvre au-dessus de la liste ; au-delà elle reste visible à droite.
-    function scrollToMusicianSheet() {
-      if (!window.matchMedia("(max-width: 1240px)").matches) return;
+    // Fait défiler la page seulement si la ligne ouverte ou le bas de sa fiche sort de l'écran.
+    function revealMusicianSheet(musicianId) {
       nextTick(() => {
-        document.getElementById("musician-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        const sheet = document.getElementById("musician-editor-panel");
+        const anchor = (musicianId && document.getElementById(`musician-row-${musicianId}`)) || sheet;
+        if (!sheet || !anchor) return;
+        if (anchor.getBoundingClientRect().top < 0 || sheet.getBoundingClientRect().bottom > window.innerHeight) {
+          anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
       });
     }
 
@@ -1980,10 +1986,15 @@ const app = createApp({
 
     function editMusician(musician) {
       if (!can("MUSICIENS_WRITE")) return;
-      if (editingMusicianId.value !== musician.id && !confirmDiscardChanges(musicianFormDirty.value)) return;
+      // Un second clic sur la ligne ouverte replie la fiche, sauf modifications en cours.
+      if (musicianFormOpen.value && editingMusicianId.value === musician.id) {
+        if (!musicianFormDirty.value) resetMusicianForm();
+        return;
+      }
+      if (!confirmDiscardChanges(musicianFormDirty.value)) return;
       loadMusicianForm(musician);
       activeView.value = "people";
-      scrollToMusicianSheet();
+      revealMusicianSheet(musician.id);
     }
 
     function loadMusicianForm(musician) {
@@ -4146,7 +4157,7 @@ const app = createApp({
       groupMemberRows,
       groupFormDirty,
       musicianFormDirty,
-      musicianSheetSummary,
+      musicianListItems,
       toggleMusicianBand,
       setMusicianWorkshop,
       toggleGroupMember,
@@ -5358,186 +5369,180 @@ const app = createApp({
             <button v-if="can('MUSICIENS_WRITE')" type="button" class="primary-button repertoire-new" @click="startNewMusician">Nouveau musicien</button>
           </div>
 
-          <div :class="['repertoire-layout', { 'with-sheet': can('MUSICIENS_WRITE') && activeMusicianFilter !== 'archived', 'sheet-open': musicianFormOpen }]">
-            <section v-if="activeMusicianFilter !== 'archived'" class="repertoire-card" aria-label="Musiciens actifs">
-              <div class="musician-row musician-row-head" aria-hidden="true">
-                <span></span>
-                <span>Musicien</span>
-                <span>Cours individuel</span>
-                <span>Groupes</span>
-                <span class="num">À payer · {{ selectedTerm?.name || 'trimestre' }}</span>
-              </div>
-              <ul v-if="musicianRows.length" class="musician-list">
-                <li v-for="row in musicianRows" :key="row.musician.id">
+          <section v-if="activeMusicianFilter !== 'archived'" class="repertoire-card" aria-label="Musiciens actifs">
+            <div class="musician-row musician-row-head" aria-hidden="true">
+              <span></span>
+              <span>Musicien</span>
+              <span>Cours individuel</span>
+              <span>Groupes</span>
+              <span class="num">À payer</span>
+            </div>
+            <ul v-if="musicianListItems.length" class="musician-list">
+              <template v-for="item in musicianListItems" :key="item.key">
+                <li v-if="item.kind === 'row'" :id="'musician-row-' + item.row.musician.id">
                   <component
                     :is="can('MUSICIENS_WRITE') ? 'button' : 'div'"
                     :type="can('MUSICIENS_WRITE') ? 'button' : undefined"
-                    :class="['musician-row', { selected: musicianFormOpen && editingMusicianId === row.musician.id }]"
-                    :aria-current="musicianFormOpen && editingMusicianId === row.musician.id ? 'true' : undefined"
-                    @click="editMusician(row.musician)"
+                    :class="['musician-row', { selected: musicianFormOpen && editingMusicianId === item.row.musician.id }]"
+                    :aria-expanded="can('MUSICIENS_WRITE') ? (musicianFormOpen && editingMusicianId === item.row.musician.id ? 'true' : 'false') : undefined"
+                    @click="editMusician(item.row.musician)"
                   >
-                    <span class="person-avatar" aria-hidden="true">{{ personInitials(row.musician) }}</span>
+                    <span class="person-avatar" aria-hidden="true">{{ personInitials(item.row.musician) }}</span>
                     <span class="musician-name">
-                      <strong>{{ fullName(row.musician) }}</strong>
-                      <small>{{ row.musician.email || '—' }}</small>
+                      <strong>{{ fullName(item.row.musician) }}</strong>
+                      <small>{{ item.row.musician.email || '—' }}</small>
                     </span>
                     <span class="musician-course">
-                      <template v-if="row.course && row.course.active !== false">
-                        {{ courseSummary(row.musician) }}
-                        <small>{{ courseTimeLabel(row.course) }}</small>
+                      <template v-if="item.row.course && item.row.course.active !== false">
+                        {{ courseSummary(item.row.musician) }}
+                        <small>{{ courseTimeLabel(item.row.course) }}</small>
                       </template>
                       <span v-else class="muted">Pas de cours</span>
                     </span>
                     <span class="band-chips">
-                      <span v-for="band in row.bands" :key="band.id" :class="['band-chip', band.type]">{{ band.name }}</span>
-                      <span v-if="!row.bands.length" class="muted">Aucun groupe</span>
+                      <span v-for="band in item.row.bands" :key="band.id" :class="['band-chip', band.type]">{{ band.name }}</span>
+                      <span v-if="!item.row.bands.length" class="muted">Aucun groupe</span>
                     </span>
-                    <span class="musician-due num">{{ billingMoney(row.totalDue) }}</span>
+                    <span class="musician-due num">{{ billingMoney(item.row.totalDue) }}</span>
                   </component>
                 </li>
-              </ul>
-              <p v-else class="empty-state">{{ search ? 'Aucun musicien ne correspond à la recherche.' : 'Aucun musicien dans cette catégorie.' }}</p>
-            </section>
-
-            <section v-else class="repertoire-card" aria-label="Musiciens archivés">
-              <ul v-if="filteredArchivedMusicians.length" class="musician-list">
-                <li v-for="musician in filteredArchivedMusicians" :key="musician.id">
-                  <div class="musician-row archived">
-                    <span class="person-avatar" aria-hidden="true">{{ personInitials(musician) }}</span>
-                    <span class="musician-name">
-                      <strong>{{ fullName(musician) }}</strong>
-                      <small>{{ musician.email || '—' }}</small>
-                    </span>
-                    <button type="button" class="ghost-button" @click="restoreMusician(musician.id)">
-                      <svg aria-hidden="true"><use href="#icon-user-check"></use></svg>
-                      Désarchiver
-                    </button>
-                  </div>
-                </li>
-              </ul>
-              <p v-else class="empty-state">Aucun musicien archivé.</p>
-            </section>
-
-            <aside v-if="can('MUSICIENS_WRITE') && activeMusicianFilter !== 'archived'" id="musician-editor-panel" class="repertoire-card repertoire-sheet" aria-label="Fiche musicien">
-              <template v-if="musicianFormOpen">
-                <header class="sheet-head">
-                  <span class="person-avatar large" aria-hidden="true">{{ personInitials(musicianForm) }}</span>
-                  <div>
-                    <span class="eyebrow">{{ editingMusicianId ? 'Fiche musicien' : 'Nouveau musicien' }}</span>
-                    <h2>{{ (musicianForm.firstName + ' ' + musicianForm.lastName).trim() || 'Sans nom' }}</h2>
-                    <small>{{ musicianSheetSummary }}</small>
-                  </div>
-                </header>
-
-                <section class="sheet-section">
-                  <h3>Identité</h3>
-                  <div class="sheet-fields">
-                    <label>
-                      Prénom
-                      <input v-model="musicianForm.firstName" placeholder="Prénom" />
-                    </label>
-                    <label>
-                      Nom
-                      <input v-model="musicianForm.lastName" placeholder="Nom" />
-                    </label>
-                    <label class="full">
-                      Adresse mail
-                      <input type="email" v-model="musicianForm.email" placeholder="nom@exemple.fr" />
-                    </label>
-                  </div>
-                </section>
-
-                <section class="sheet-section">
-                  <label class="sheet-section-head">
-                    <h3>Cours individuel</h3>
-                    <input type="checkbox" class="switch" v-model="musicianForm.hasIndividualCourse" aria-label="Inscrit à un cours individuel" />
-                  </label>
-                  <template v-if="musicianForm.hasIndividualCourse">
-                    <div class="sheet-fields">
-                      <label>
-                        Professeur
-                        <select v-model="musicianForm.teacherId">
-                          <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
-                        </select>
-                      </label>
-                      <label>
-                        Instrument
-                        <input v-model="musicianForm.instrument" />
-                      </label>
-                      <label>
-                        Jour
-                        <select v-model="musicianForm.weekday">
-                          <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
-                        </select>
-                      </label>
-                      <label>
-                        Créneau
-                        <select v-model="musicianForm.startTime">
-                          <option v-for="slot in timeSlots" :key="slot" :value="slot" :disabled="isSlotDisabled(slot) && slot !== musicianForm.startTime">
-                            {{ slot }}{{ isSlotDisabled(slot) ? ' · ' + courseSlotReason(slot) : '' }}
-                          </option>
-                        </select>
-                      </label>
-                      <label class="check-label inline-check full">
-                        <input type="checkbox" v-model="musicianForm.sharedSlot" />
-                        Créneau partagé
-                      </label>
+                <li v-else id="musician-editor-panel" class="musician-sheet">
+                  <section :aria-label="editingMusicianId ? 'Fiche de ' + fullName(musicianForm) : 'Nouveau musicien'">
+                    <div v-if="!editingMusicianId" class="musician-sheet-title">
+                      <span class="person-avatar" aria-hidden="true">{{ personInitials(musicianForm) }}</span>
+                      <div>
+                        <span class="eyebrow">Nouveau musicien</span>
+                        <strong>{{ (musicianForm.firstName + ' ' + musicianForm.lastName).trim() || 'Sans nom' }}</strong>
+                      </div>
                     </div>
-                    <p v-if="slotTakenByOtherMusician()" class="form-warning">Ce créneau n’est pas disponible : {{ courseSlotReason(musicianForm.startTime) }}. Un créneau partagé n’est possible qu’entre deux cours qui commencent à la même heure.</p>
-                    <p v-else class="sheet-ok">
-                      <svg aria-hidden="true"><use href="#icon-check"></use></svg>
-                      Salle libre · {{ courseTimeLabel(musicianForm) }}
-                    </p>
-                  </template>
-                  <p v-else class="sheet-note">Pas de créneau hebdomadaire.</p>
-                </section>
 
-                <section class="sheet-section">
-                  <h3>Groupes musicaux</h3>
-                  <div v-if="sortedIndependentBands.length" class="toggle-chips" role="group" aria-label="Groupes musicaux">
-                    <button
-                      v-for="band in sortedIndependentBands"
-                      :key="band.id"
-                      type="button"
-                      class="toggle-chip"
-                      :aria-pressed="musicianForm.bandIds.includes(band.id) ? 'true' : 'false'"
-                      @click="toggleMusicianBand(band.id)"
-                    >{{ band.name }}<small>{{ bandScheduleLabel(band) || 'à placer' }}</small></button>
-                  </div>
-                  <p v-else class="sheet-note">Aucun groupe musical cette année.</p>
-                </section>
+                    <div class="musician-sheet-grid">
+                      <div class="sheet-column">
+                        <h3>Identité</h3>
+                        <div class="sheet-fields">
+                          <label>
+                            Prénom
+                            <input v-model="musicianForm.firstName" placeholder="Prénom" />
+                          </label>
+                          <label>
+                            Nom
+                            <input v-model="musicianForm.lastName" placeholder="Nom" />
+                          </label>
+                          <label class="full">
+                            Adresse mail
+                            <input type="email" v-model="musicianForm.email" placeholder="nom@exemple.fr" />
+                          </label>
+                        </div>
+                      </div>
 
-                <section class="sheet-section">
-                  <h3>Atelier</h3>
-                  <div v-if="sortedWorkshopBands.length" class="segmented sheet-segmented" role="group" aria-label="Atelier">
-                    <button type="button" :aria-pressed="musicianForm.inWorkshop ? 'false' : 'true'" @click="setMusicianWorkshop('')">Aucun</button>
-                    <button
-                      v-for="band in sortedWorkshopBands"
-                      :key="band.id"
-                      type="button"
-                      :aria-pressed="musicianForm.inWorkshop && musicianForm.workshopBandId === band.id ? 'true' : 'false'"
-                      @click="setMusicianWorkshop(band.id)"
-                    >{{ band.name }}</button>
-                  </div>
-                  <p v-else class="sheet-note">Aucun atelier cette année.</p>
-                </section>
+                      <div class="sheet-column">
+                        <label class="sheet-column-head">
+                          <h3>Cours individuel</h3>
+                          <input type="checkbox" class="switch" v-model="musicianForm.hasIndividualCourse" aria-label="Inscrit à un cours individuel" />
+                        </label>
+                        <template v-if="musicianForm.hasIndividualCourse">
+                          <div class="sheet-fields">
+                            <label>
+                              Professeur
+                              <select v-model="musicianForm.teacherId">
+                                <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
+                              </select>
+                            </label>
+                            <label>
+                              Instrument
+                              <input v-model="musicianForm.instrument" />
+                            </label>
+                            <label>
+                              Jour
+                              <select v-model="musicianForm.weekday">
+                                <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
+                              </select>
+                            </label>
+                            <label>
+                              Créneau
+                              <select v-model="musicianForm.startTime">
+                                <option v-for="slot in timeSlots" :key="slot" :value="slot" :disabled="isSlotDisabled(slot) && slot !== musicianForm.startTime">
+                                  {{ slot }}{{ isSlotDisabled(slot) ? ' · ' + courseSlotReason(slot) : '' }}
+                                </option>
+                              </select>
+                            </label>
+                            <label class="check-label inline-check full">
+                              <input type="checkbox" v-model="musicianForm.sharedSlot" />
+                              Créneau partagé
+                            </label>
+                          </div>
+                          <p v-if="slotTakenByOtherMusician()" class="form-warning">Ce créneau n’est pas disponible : {{ courseSlotReason(musicianForm.startTime) }}. Un créneau partagé n’est possible qu’entre deux cours qui commencent à la même heure.</p>
+                          <p v-else class="sheet-ok">
+                            <svg aria-hidden="true"><use href="#icon-check"></use></svg>
+                            Salle libre · {{ courseTimeLabel(musicianForm) }}
+                          </p>
+                        </template>
+                        <p v-else class="sheet-note">Pas de créneau hebdomadaire.</p>
+                      </div>
 
-                <div class="sheet-actions">
-                  <button class="primary-button" @click="saveMusician" :disabled="slotTakenByOtherMusician()">
-                    {{ editingMusicianId ? 'Enregistrer' : 'Créer le musicien' }}
-                  </button>
-                  <button class="ghost-button" @click="resetMusicianForm">{{ musicianFormDirty ? 'Annuler' : 'Fermer' }}</button>
-                  <span v-if="musicianFormDirty" class="dirty-flag">Non enregistré</span>
-                  <button v-if="editingMusicianId" type="button" class="link-button danger-link" @click="deleteMusician(editingMusicianId)">Archiver</button>
-                </div>
+                      <div class="sheet-column">
+                        <h3>Groupes musicaux</h3>
+                        <div v-if="sortedIndependentBands.length" class="toggle-chips" role="group" aria-label="Groupes musicaux">
+                          <button
+                            v-for="band in sortedIndependentBands"
+                            :key="band.id"
+                            type="button"
+                            class="toggle-chip"
+                            :aria-pressed="musicianForm.bandIds.includes(band.id) ? 'true' : 'false'"
+                            @click="toggleMusicianBand(band.id)"
+                          >{{ band.name }}<small>{{ bandScheduleLabel(band) || 'à placer' }}</small></button>
+                        </div>
+                        <p v-else class="sheet-note">Aucun groupe musical cette année.</p>
+
+                        <h3>Atelier</h3>
+                        <div v-if="sortedWorkshopBands.length" class="toggle-chips" role="group" aria-label="Atelier (un seul)">
+                          <button type="button" class="toggle-chip" :aria-pressed="musicianForm.inWorkshop ? 'false' : 'true'" @click="setMusicianWorkshop('')">Aucun</button>
+                          <button
+                            v-for="band in sortedWorkshopBands"
+                            :key="band.id"
+                            type="button"
+                            class="toggle-chip"
+                            :aria-pressed="musicianForm.inWorkshop && musicianForm.workshopBandId === band.id ? 'true' : 'false'"
+                            @click="setMusicianWorkshop(band.id)"
+                          >{{ band.name }}<small>{{ bandScheduleLabel(band) || 'à placer' }}</small></button>
+                        </div>
+                        <p v-else class="sheet-note">Aucun atelier cette année.</p>
+                      </div>
+                    </div>
+
+                    <div class="sheet-actions">
+                      <button class="primary-button" @click="saveMusician" :disabled="slotTakenByOtherMusician()">
+                        {{ editingMusicianId ? 'Enregistrer' : 'Créer le musicien' }}
+                      </button>
+                      <button class="ghost-button" @click="resetMusicianForm">{{ musicianFormDirty ? 'Annuler' : 'Fermer' }}</button>
+                      <span v-if="musicianFormDirty" class="dirty-flag">Non enregistré</span>
+                      <button v-if="editingMusicianId" type="button" class="link-button danger-link" @click="deleteMusician(editingMusicianId)">Archiver</button>
+                    </div>
+                  </section>
+                </li>
               </template>
-              <div v-else class="sheet-empty">
-                <svg aria-hidden="true"><use href="#icon-nav-people"></use></svg>
-                <p>Choisissez un musicien dans la liste pour ouvrir sa fiche, ou créez-en un.</p>
-                <button type="button" class="ghost-button" @click="startNewMusician">Nouveau musicien</button>
-              </div>
-            </aside>
-          </div>
+            </ul>
+            <p v-else class="empty-state">{{ search ? 'Aucun musicien ne correspond à la recherche.' : 'Aucun musicien dans cette catégorie.' }}</p>
+          </section>
+
+          <section v-else class="repertoire-card" aria-label="Musiciens archivés">
+            <ul v-if="filteredArchivedMusicians.length" class="musician-list">
+              <li v-for="musician in filteredArchivedMusicians" :key="musician.id">
+                <div class="musician-row archived">
+                  <span class="person-avatar" aria-hidden="true">{{ personInitials(musician) }}</span>
+                  <span class="musician-name">
+                    <strong>{{ fullName(musician) }}</strong>
+                    <small>{{ musician.email || '—' }}</small>
+                  </span>
+                  <button type="button" class="ghost-button" @click="restoreMusician(musician.id)">
+                    <svg aria-hidden="true"><use href="#icon-user-check"></use></svg>
+                    Désarchiver
+                  </button>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="empty-state">Aucun musicien archivé.</p>
+          </section>
         </section>
 
         <section v-if="activeView === 'groups' && !mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" class="view-stack repertoire-view">

@@ -227,18 +227,19 @@ Planning hebdomadaire de la salle unique : cours individuels, ateliers et groupe
 
 Même principe pour les deux écrans : une barre d'outils (recherche en pilule, filtres, bouton principal « Nouveau … » à droite), une liste, une fiche.
 
-- Avatars d'initiales ronds `--avatar-bg` / `--avatar-ink` (34 px dans les listes, 52 px en tête de fiche, 26 px empilés sur les cartes de groupe).
+- Avatars d'initiales ronds `--avatar-bg` / `--avatar-ink` (34 px dans les listes, 26 px empilés sur les cartes de groupe).
 - Pastilles de groupe : mêmes fonds que le planning, groupe `--rail`, atelier `--card-alt` + contour `--line`.
 - Musiciens :
   - filtres en contrôle segmenté avec compteurs mono : Tous, Cours, Groupes, Ateliers, Archivés ;
-  - liste en lignes cliquables : avatar, nom et adresse, cours (« Basse · Alex » puis horaire en mono), pastilles de groupes, montant à payer du trimestre en mono ; la ligne ouverte est en `--petrol-tint` avec un filet gauche `--petrol` ;
-  - fiche latérale de 400 px, collante : nom en display 30 px et résumé des activités, puis sections Identité, Cours individuel (interrupteur, disponibilité de la salle en mono), Groupes musicaux (pastilles à bascule, pleines en `--petrol` quand le musicien est inscrit), Atelier (contrôle segmenté « Aucun » + ateliers) ;
+  - liste en lignes cliquables : avatar, nom et adresse, cours (« Basse · Alex » puis horaire en mono), pastilles de groupes, montant à payer du trimestre sélectionné en mono ; la ligne ouverte est en `--petrol-tint` avec un filet gauche `--petrol` ;
+  - la fiche se déplie sous la ligne (un second clic la replie), sur toute la largeur de la liste, sans défilement propre : trois colonnes séparées par un filet (Identité ; Cours individuel avec interrupteur et disponibilité de la salle en mono ; Groupes musicaux puis Atelier). Un nouveau musicien s'ouvre en tête de liste ;
+  - groupes et ateliers en pastilles à bascule (pleines en `--petrol` quand le musicien est inscrit, horaire en mono) ; l'atelier est unique : « Aucun » ou un atelier. Une pastille ne se coupe jamais, ce sont les pastilles qui passent à la ligne ;
   - l'archivage se fait depuis la fiche (lien brique) ; les archivés se désarchivent depuis leur filtre.
 - Groupes :
   - colonne de 320 px, cartes rangées par type (Ateliers, Groupes musicaux) : nom, horaire en mono ou pastille laiton « À placer », professeur (atelier) ou durée (groupe), avatars des membres ;
   - fiche : nom en display 36 px, horaire et durée en pastille mono, lien « Voir dans Créneaux » ; Réglages (type et durée en contrôle segmenté, nom, professeur, jour, horaire) à gauche, Membres à droite en liste à cocher filtrable (membres en tête sur fond pétrole léger, puis « Autres musiciens », avec leur cours et leurs autres groupes en mono).
 - Enregistrement explicite : les modifications d'une fiche (membres compris) attendent le bouton « Enregistrer » ; une pastille laiton « Modifications non enregistrées » le signale, et changer de fiche demande confirmation.
-- Sous 1240 px, la fiche passe au-dessus de la liste quand elle est ouverte ; sous 980 px, la fiche de groupe passe sous la liste ; sous 760 px, les lignes de musicien s'empilent (nom et montant, cours, pastilles).
+- Fiche musicien sur deux colonnes sous 1100 px (Groupes et Atelier en dessous), une seule sous 760 px ; sous 980 px, la fiche de groupe passe sous la liste ; sous 760 px, les lignes de musicien s'empilent (nom et montant, cours, pastilles).
 
 ### Émargement mobile (390 px)
 

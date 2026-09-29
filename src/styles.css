@@ -5222,16 +5222,6 @@ td strong {
   opacity: 0.8;
 }
 
-.repertoire-layout {
-  display: grid;
-  align-items: start;
-  gap: 16px;
-}
-
-.repertoire-layout.with-sheet {
-  grid-template-columns: minmax(0, 1fr) 400px;
-}
-
 .repertoire-card {
   min-width: 0;
   border: 1px solid var(--line);
@@ -5286,7 +5276,7 @@ td strong {
 .musician-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 34px minmax(140px, 1.1fr) minmax(150px, 1.1fr) minmax(0, 1.4fr) 96px;
+  grid-template-columns: 34px minmax(140px, 1.1fr) minmax(150px, 1.1fr) minmax(0, 1.4fr) 104px;
   align-items: center;
   gap: 14px;
   padding: 11px 18px;
@@ -5320,6 +5310,7 @@ button.musician-row.selected:hover {
 
 .musician-row-head {
   padding-top: 14px;
+  white-space: nowrap;
   border-bottom: 1.5px solid var(--line-strong);
   color: var(--ink-faint);
   font-size: 12px;
@@ -5392,58 +5383,77 @@ button.musician-row.selected:hover {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
-/* Fiche latérale */
-.repertoire-sheet {
-  position: sticky;
-  top: 16px;
-  max-height: calc(100vh - 32px);
+/* Fiche ouverte sous la ligne du musicien : un seul défilement, celui de la page. */
+.musician-list > li {
+  scroll-margin-top: 16px;
+}
+
+.musician-sheet {
+  padding: 18px 18px 18px 21px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--petrol-tint) 35%, var(--card));
+  box-shadow: inset 3px 0 0 var(--petrol);
+}
+
+.musician-list li:last-child.musician-sheet {
+  border-bottom: 0;
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.musician-sheet > section {
   display: grid;
   gap: 16px;
-  padding: 20px;
-  overflow: auto;
 }
 
-.sheet-head {
+.musician-sheet-title {
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-width: 0;
+  gap: 12px;
 }
 
-.sheet-head .eyebrow {
+.musician-sheet-title .eyebrow {
   display: block;
   margin: 0;
 }
 
-.sheet-head h2 {
-  margin: 0;
+.musician-sheet-title strong {
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 400;
   line-height: 1.05;
-  overflow-wrap: anywhere;
 }
 
-.sheet-head small {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-
-.sheet-section {
+.musician-sheet-grid {
   display: grid;
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 24px;
 }
 
-.sheet-section h3,
+.sheet-column {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.sheet-column + .sheet-column {
+  padding-left: 24px;
+  border-left: 1px solid var(--line);
+}
+
+.sheet-column h3,
 .group-settings h3,
 .group-members h3 {
   margin: 0;
   font-size: 14px;
 }
 
-.sheet-section-head {
+.sheet-column h3 + .toggle-chips + h3,
+.sheet-column .sheet-note + h3 {
+  margin-top: 8px;
+}
+
+.sheet-column-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -5506,9 +5516,13 @@ button.musician-row.selected:hover {
   gap: 6px;
 }
 
+/* Une pastille ne se coupe jamais : ce sont les pastilles qui passent à la ligne. */
 .toggle-chip {
+  max-width: 100%;
   min-height: 36px;
   display: inline-flex;
+  overflow: hidden;
+  white-space: nowrap;
   align-items: center;
   gap: 6px;
   padding: 0 14px;
@@ -5593,29 +5607,6 @@ button.musician-row.selected:hover {
 
 .link-button.danger-link:hover {
   color: var(--brick);
-}
-
-.sheet-empty {
-  display: grid;
-  justify-items: center;
-  gap: 12px;
-  padding: 28px 12px;
-  color: var(--ink-muted);
-  text-align: center;
-}
-
-.sheet-empty svg {
-  width: 32px;
-  height: 32px;
-  fill: none;
-  stroke: var(--ink-faint);
-  stroke-width: 1.5;
-}
-
-.sheet-empty p {
-  max-width: 260px;
-  margin: 0;
-  font-size: 13px;
 }
 
 input.switch {
@@ -5903,32 +5894,32 @@ input.switch:checked::after {
 }
 
 @media screen and (max-width: 1240px) {
-  .repertoire-layout.with-sheet {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  /* Fiche ouverte au-dessus de la liste ; fermée, l'encart d'invitation est inutile. */
-  .repertoire-layout.sheet-open .repertoire-sheet {
-    order: -1;
-  }
-
-  .repertoire-layout:not(.sheet-open) .repertoire-sheet {
-    display: none;
-  }
-
-  .repertoire-sheet {
-    position: static;
-    max-height: none;
-  }
-
   .group-detail-body {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media screen and (max-width: 1100px) {
+  .musician-sheet-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sheet-column:nth-child(3) {
+    grid-column: 1 / -1;
+    padding: 16px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 }
 
 @media screen and (max-width: 980px) {
   .groups-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Laisse la place à l'en-tête mobile au-dessus de la ligne ouverte. */
+  .musician-list > li {
+    scroll-margin-top: 80px;
   }
 }
 
@@ -5973,6 +5964,23 @@ input.switch:checked::after {
 
   .sheet-fields {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .musician-sheet {
+    padding: 14px 14px 14px 17px;
+  }
+
+  .musician-sheet-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .sheet-column + .sheet-column,
+  .sheet-column:nth-child(3) {
+    grid-column: auto;
+    padding: 16px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .group-detail {
