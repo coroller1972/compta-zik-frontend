@@ -2312,8 +2312,13 @@ td small {
     print-color-adjust: exact;
   }
 
-  body {
-    background: #fff;
+  /* Papier blanc : les règles d'écran plus loin dans le fichier posent le fond crème. */
+  html,
+  body,
+  .shell,
+  .content,
+  .signature-page {
+    background: #fff !important;
   }
 
   .sidebar,
@@ -4753,7 +4758,8 @@ td strong {
   font-size: 15px;
 }
 
-@media (max-width: 980px) {
+/* Écran uniquement : à l'impression, les feuilles d'émargement doivent rester visibles quelle que soit la largeur de page. */
+@media screen and (max-width: 980px) {
   .shell {
     grid-template-columns: 1fr;
   }
