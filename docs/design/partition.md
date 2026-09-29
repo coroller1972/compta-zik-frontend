@@ -221,6 +221,7 @@ Planning hebdomadaire de la salle unique : cours individuels, ateliers et groupe
 - Colonne latérale de 300 px (sous l'agenda en dessous de 1240 px) : panneau « Créneau libre » et liste « À placer » (groupes sans horaire).
 - Mobile (≤ 760 px) : contrôle segmenté Lun–Ven et une seule colonne de jour.
 - Formulaires : un groupe choisit sa durée (1 h 15 ou 1 h 30) ; les horaires proposés (cours, groupes) affichent la fin du créneau et pourquoi un départ est indisponible (« occupé », « dépasse 14:00 »).
+- Impression (bouton « Imprimer ») : A4 paysage pour l'affichage en salle, la semaine seule sur une page. En-tête « Planning de la salle » en display (année, date d'impression, professeur mis en avant s'il y en a un), légende, agenda aux lignes de 6 mm ; ni filtre, ni colonne latérale, ni créneaux libres, ni repère du jour courant.
 
 ### Émargement mobile (390 px)
 
