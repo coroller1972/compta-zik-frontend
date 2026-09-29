@@ -32,6 +32,7 @@ const FRENCH_DATE = new Intl.DateTimeFormat("fr-FR", {
   month: "long",
   year: "numeric",
 });
+const PRINT_DATE = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 const SHORT_DATE = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
   month: "2-digit",
@@ -595,7 +596,8 @@ const app = createApp({
 
     // Planning de la salle (écran Créneaux) — règles partagées avec le backend dans schedule.mjs.
     const AGENDA_ROWS = agendaRows();
-    const agendaTemplateRows = `44px ${AGENDA_ROWS.map((row) => (row.type === "pause" ? "34px" : "22px")).join(" ")}`;
+    // Hauteurs en variables CSS : l'impression les agrandit pour tenir la semaine sur une page A4 paysage.
+    const agendaTemplateRows = `var(--agenda-head, 44px) ${AGENDA_ROWS.map((row) => (row.type === "pause" ? "var(--agenda-pause, 34px)" : "var(--agenda-row, 22px)")).join(" ")}`;
     const roomOccupations = computed(() => roomOccupationsOf({
       settings: state.settings,
       courses: state.individualCourses,
@@ -612,6 +614,17 @@ const app = createApp({
     });
     const todayWeekday = WEEKDAYS[new Date().getDay() - 1] || null;
     const slotsDay = ref(todayWeekday || WEEKDAYS[0]);
+    // À l'impression, la semaine entière s'affiche, même depuis un écran étroit (bouton ou Ctrl+P).
+    const slotsPrinting = ref(false);
+    const slotsPrintDate = ref("");
+    window.addEventListener("beforeprint", () => {
+      slotsPrintDate.value = PRINT_DATE.format(new Date());
+      slotsPrinting.value = true;
+    });
+    window.addEventListener("afterprint", () => {
+      slotsPrinting.value = false;
+    });
+    const slotsHighlightedTeacher = computed(() => teachersById.value[slotsTeacherFilter.value] || null);
 
     function agendaRow(minutes) {
       return AGENDA_ROWS.findIndex((row) => row.type === "slot" && row.minutes === minutes) + 2;
@@ -654,7 +667,7 @@ const app = createApp({
       };
     }
 
-    const agendaDays = computed(() => (isNarrowScreen.value ? [slotsDay.value] : WEEKDAYS).map((day) => {
+    const agendaDays = computed(() => (isNarrowScreen.value && !slotsPrinting.value ? [slotsDay.value] : WEEKDAYS).map((day) => {
       const dayOccupations = roomOccupations.value.filter((occupation) => occupation.weekday === day);
       const groups = [];
       [...dayOccupations].sort((left, right) => left.start - right.start).forEach((occupation) => {
@@ -712,6 +725,14 @@ const app = createApp({
 
     function closeSlotSelection() {
       slotsSelection.value = null;
+    }
+
+    async function printSlots() {
+      slotsSelection.value = null;
+      slotsPrintDate.value = PRINT_DATE.format(new Date());
+      slotsPrinting.value = true;
+      await nextTick();
+      window.print();
     }
 
     async function placeBand() {
@@ -4041,6 +4062,9 @@ const app = createApp({
       timeSlots,
       AGENDA_ROWS,
       agendaTemplateRows,
+      printSlots,
+      slotsHighlightedTeacher,
+      slotsPrintDate,
       agendaDays,
       slotsTeacherFilter,
       slotsSelection,
@@ -5048,8 +5072,15 @@ const app = createApp({
         </section>
 
         <section v-if="activeView === 'slots' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="view-stack slots-view">
+          <header class="slots-print-head" aria-hidden="true">
+            <div>
+              <h1>Planning de la salle</h1>
+              <span>Année {{ state.settings.year }}<template v-if="slotsPrintDate"> · imprimé le {{ slotsPrintDate }}</template></span>
+            </div>
+            <span v-if="slotsHighlightedTeacher">Mis en avant : {{ fullName(slotsHighlightedTeacher) }}</span>
+          </header>
           <div class="slots-toolbar">
-            <label class="slots-teacher-filter">
+            <label class="slots-teacher-filter no-print">
               <span class="visually-hidden">Professeur</span>
               <select v-model="slotsTeacherFilter" aria-label="Mettre en avant les réservations d’un professeur">
                 <option value="">Tous les professeurs</option>
@@ -5062,10 +5093,14 @@ const app = createApp({
               <li><span class="slot-swatch group" aria-hidden="true"></span>Groupe · 1 h 15 ou 1 h 30</li>
               <li><span class="slot-swatch free" aria-hidden="true"></span>Libre</li>
             </ul>
-            <span class="slots-hint">Salle unique · 11:30–14:00 et 16:30–20:00 · cliquez sur un créneau libre pour l’allouer</span>
+            <span class="slots-hint no-print">Salle unique · 11:30–14:00 et 16:30–20:00 · cliquez sur un créneau libre pour l’allouer</span>
+            <button type="button" class="ghost-button no-print slots-print" @click="printSlots">
+              <svg aria-hidden="true"><use href="#icon-print"></use></svg>
+              Imprimer
+            </button>
           </div>
 
-          <div v-if="isNarrowScreen" class="segmented slots-days" role="group" aria-label="Jour affiché">
+          <div v-if="isNarrowScreen" class="segmented slots-days no-print" role="group" aria-label="Jour affiché">
             <button
               v-for="day in WEEKDAYS"
               :key="day"
@@ -5125,7 +5160,7 @@ const app = createApp({
               </div>
             </section>
 
-            <aside class="slots-side">
+            <aside class="slots-side no-print">
               <section v-if="slotSelectionInfo" class="panel slot-allocation" aria-live="polite">
                 <span class="eyebrow">Créneau libre</span>
                 <h2>{{ slotSelectionInfo.day }} · {{ slotSelectionInfo.time }}</h2>

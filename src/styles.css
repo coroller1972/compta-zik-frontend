@@ -4583,6 +4583,89 @@ td strong {
   }
 }
 
+.slots-print-head {
+  display: none;
+}
+
+.slots-print {
+  flex: none;
+}
+
+/* Impression paysage pour l'affichage en salle : la semaine seule, sur une page A4. */
+@media print {
+  .slots-view {
+    gap: 4mm;
+  }
+
+  .slots-print-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+    padding-bottom: 2mm;
+    border-bottom: 1.5px solid var(--line-strong);
+  }
+
+  .slots-print-head h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 400;
+    line-height: 1.1;
+  }
+
+  .slots-print-head span {
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .slots-print-head div span {
+    display: block;
+  }
+
+  .slots-legend {
+    font-size: 11px;
+  }
+
+  .slots-layout {
+    display: block;
+  }
+
+  .agenda-card {
+    overflow: visible;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 10 + 24 × 6 + 7 mm : la semaine tient sous l'en-tête dans les 196 mm utiles. */
+  .agenda {
+    --agenda-head: 10mm;
+    --agenda-row: 6mm;
+    --agenda-pause: 7mm;
+    min-width: 0;
+  }
+
+  .agenda-day-head {
+    position: static;
+  }
+
+  .agenda-day-head strong {
+    font-size: 14px;
+  }
+
+  /* L'affiche reste en salle plusieurs semaines : pas de repère « aujourd'hui ». */
+  .agenda-day-head.today strong {
+    padding: 0;
+    background: none;
+    color: inherit;
+  }
+
+  .agenda-free {
+    display: none;
+  }
+}
+
 .collapsible-editor {
   padding-top: 18px;
   border-top: 1px solid var(--line);
