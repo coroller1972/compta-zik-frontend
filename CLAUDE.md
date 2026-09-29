@@ -31,4 +31,4 @@ SPA Vue 3 sans étape de build pour la comptabilité d'une activité musicale (p
 - Couleurs, polices et rayons viennent **uniquement** des variables de `docs/design/tokens.css` (thème clair + nuit). Pas de couleur en dur dans les composants.
 - Les maquettes de référence (valeurs exactes) sont dans `docs/design/maquettes/`.
 - Si la DA évolue, mettre à jour `partition.md` et `tokens.css` dans le même commit.
-- Refonte en cours : suivre le plan de la section 9 de `partition.md`, sur la branche `feat/da-partition`, un commit par étape.
+- La refonte « Partition » est terminée (les 8 étapes de la section 9 de `partition.md` sont fusionnées sur `main`). Les propositions encore à valider sont listées en section 8.
