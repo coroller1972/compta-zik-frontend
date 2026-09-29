@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 38 38">
+  <!-- Marque « Partition » : carré pétrole (--petrol), double croche laiton (--brass-bright), cf. partition.md §3 -->
+  <rect width="38" height="38" rx="10" fill="#0B5563"/>
+  <g transform="translate(8 8) scale(0.9167)" fill="none" stroke="#E0B45A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 18V5l10-2v12"/>
+    <circle cx="6.5" cy="18" r="2.5" fill="#E0B45A" stroke="none"/>
+    <circle cx="16.5" cy="15" r="2.5" fill="#E0B45A" stroke="none"/>
+  </g>
+</svg>
