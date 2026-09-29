@@ -207,6 +207,21 @@ Fond `--paper-deep`, bordure droite `--line`, padding 24 × 16. De haut en bas :
 - Pied de grille `--card-alt` : récapitulatif de la semaine courante + total du trimestre en display.
 - La colonne Total et le total du pied comptent des **séances**, pas des euros : le backend ne fournit pas de montant par ligne et le frontend ne calcule aucun montant (les montants des maquettes sont illustratifs).
 
+### Créneaux
+
+Planning hebdomadaire de la salle unique : cours individuels, ateliers et groupes.
+
+- Barre d'outils : filtre « Tous les professeurs » (met en avant les réservations d'un professeur, estompe les autres à 35 %), légende avec la durée de chaque type (cours et atelier selon la configuration de l'année, groupe 1 h 15 ou 1 h 30 selon le groupe), rappel des plages en mono.
+- Agenda dans une carte : colonne horaire mono de 56 px, une colonne par jour Lun–Ven, lignes au quart d'heure de 22 px (filet `--line` à l'heure pleine, `--line-soft` à la demi-heure). Plages 11:30–14:00 et 16:30–20:00 séparées par une bande hachurée « Pause · 14:00 → 16:30 ». En-tête de jour : nom + temps libre (« 3 h 30 libres ») ; le jour courant porte une pastille `--brass`.
+- Blocs de hauteur proportionnelle à la durée, filet gauche de 3 px ; le type se lit aussi par une pastille de texte (hors cours de 30 min) :
+  - Cours : `--petrol-tint`, filet `--petrol`, nom en `--petrol-tint-ink` ; deux cours partagés forment un seul bloc « Créneau partagé ».
+  - Atelier : `--card-alt` + contour `--line`, filet `--petrol`, pastille « Atelier ».
+  - Groupe : `--rail`, filet `--ink-soft`, pastille « Groupe ».
+- Départs au quart d'heure (deux groupes de 1 h 15 tiennent sur 11:30–14:00). Créneaux libres par quart d'heure : invisibles au repos, contour pointillé `--petrol` et « + 12:45 » au survol ou au focus ; un clic ouvre le panneau « Créneau libre » (jour, heure, « libre jusqu'à … ») pour placer un groupe à placer qui y tient, ou créer un cours ou un groupe à cet horaire.
+- Colonne latérale de 300 px (sous l'agenda en dessous de 1240 px) : panneau « Créneau libre » et liste « À placer » (groupes sans horaire).
+- Mobile (≤ 760 px) : contrôle segmenté Lun–Ven et une seule colonne de jour.
+- Formulaires : un groupe choisit sa durée (1 h 15 ou 1 h 30) ; les horaires proposés (cours, groupes) affichent la fin du créneau et pourquoi un départ est indisponible (« occupé », « dépasse 14:00 »).
+
 ### Émargement mobile (390 px)
 
 Saisie rapide des présences d'une journée :

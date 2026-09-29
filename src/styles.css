@@ -2010,59 +2010,6 @@ td small {
   min-width: max-content;
 }
 
-.slot-planning {
-  overflow-x: auto;
-}
-
-.slot-planning table {
-  min-width: 760px;
-  table-layout: fixed;
-}
-
-.slot-planning th:first-child {
-  width: 86px;
-}
-
-.slot-planning tbody th {
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-
-.slot-planning td {
-  height: 64px;
-  border-left: 1px solid var(--line-soft);
-  background: var(--card);
-}
-
-.slot-planning td.occupied {
-  background: var(--petrol-tint);
-  box-shadow: inset 3px 0 0 var(--petrol);
-}
-
-.slot-planning td strong,
-.slot-planning td small {
-  display: block;
-}
-
-.slot-planning td strong {
-  color: var(--petrol-tint-ink);
-  font-size: 14px;
-}
-
-.slot-planning td small {
-  margin-top: 2px;
-  color: var(--ink-muted);
-  font-size: 12px;
-}
-
-.slot-free {
-  color: var(--ink-faint);
-  font-size: 13px;
-}
-
 /* Émargement — DA « Partition » (feuilles imprimables ; l'impression reste en clair) */
 .signature-stack {
   display: grid;
@@ -4283,6 +4230,356 @@ td strong {
 
   .session-copy {
     max-width: 100%;
+  }
+}
+
+/* Créneaux — planning de la salle (partition.md §6 « Créneaux ») */
+.slots-view {
+  gap: 20px;
+}
+
+.slots-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 22px;
+}
+
+.slots-teacher-filter select {
+  min-width: 220px;
+}
+
+.slots-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  list-style: none;
+}
+
+.slots-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slot-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+.slot-swatch.course,
+.agenda-block.course {
+  background: var(--petrol-tint);
+  box-shadow: inset 3px 0 0 var(--petrol);
+}
+
+.slot-swatch.workshop,
+.agenda-block.workshop {
+  background: var(--card-alt);
+  box-shadow: inset 3px 0 0 var(--petrol), inset 0 0 0 1px var(--line);
+}
+
+.slot-swatch.group,
+.agenda-block.group {
+  background: var(--rail);
+  box-shadow: inset 3px 0 0 var(--ink-soft);
+}
+
+.slot-swatch.free {
+  border: 1px dashed var(--line);
+  background: var(--card);
+}
+
+.slots-hint {
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.slots-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: start;
+  gap: 16px;
+}
+
+.agenda-card {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+
+.agenda {
+  position: relative;
+  display: grid;
+  min-width: 620px;
+  padding: 0 12px 12px 0;
+}
+
+.agenda-day-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 8px;
+  border-bottom: 1.5px solid var(--line-strong);
+  background: var(--card);
+}
+
+.agenda-day-head strong {
+  font-size: 13px;
+}
+
+.agenda-day-head span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.agenda-day-head.today strong {
+  align-self: flex-start;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--brass);
+  color: var(--on-brass);
+}
+
+.agenda-time {
+  z-index: 1;
+  padding-right: 8px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  text-align: right;
+  transform: translateY(-50%);
+}
+
+.agenda-time.hour {
+  color: var(--ink-soft);
+}
+
+.agenda-line {
+  border-top: 1px solid transparent;
+}
+
+.agenda-line.hour {
+  border-top-color: var(--line);
+}
+
+.agenda-line.half {
+  border-top-color: var(--line-soft);
+}
+
+.agenda-line.last {
+  border-bottom: 1px solid var(--line);
+}
+
+.agenda-time.end {
+  align-self: end;
+  transform: translateY(50%);
+}
+
+.agenda-pause {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  margin: 4px 0 4px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--card-alt);
+  background-image: var(--hatch);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.agenda-free {
+  z-index: 1;
+  margin: 1px 3px;
+  padding: 0 6px;
+  border: 1px dashed transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: left;
+}
+
+.agenda-free:hover,
+.agenda-free:focus-visible,
+.agenda-free.selected {
+  border-color: var(--petrol);
+  background: color-mix(in srgb, var(--petrol) 6%, transparent);
+  color: var(--petrol-tint-ink);
+}
+
+.agenda-free:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: 1px;
+}
+
+.agenda-block {
+  z-index: 2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 3px;
+  padding: 4px 8px 4px 10px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.agenda-block strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-block.course strong {
+  color: var(--petrol-tint-ink);
+}
+
+.agenda-block-meta {
+  overflow: hidden;
+  color: var(--ink-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-block-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.agenda-chip {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.agenda-block.dimmed {
+  opacity: 0.35;
+}
+
+.slots-side {
+  display: grid;
+  gap: 16px;
+}
+
+.slot-allocation {
+  display: grid;
+  gap: 10px;
+}
+
+.slot-allocation h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 400;
+}
+
+.slot-allocation .eyebrow,
+.slot-allocation p {
+  margin: 0;
+}
+
+.slot-place {
+  display: grid;
+  gap: 8px;
+}
+
+.slot-place label {
+  display: grid;
+  gap: 6px;
+}
+
+.slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.unplaced-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.unplaced-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.unplaced-list strong,
+.unplaced-list small {
+  display: block;
+}
+
+.unplaced-list small {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 1240px) {
+  .slots-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .slots-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .slots-teacher-filter select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .slots-hint {
+    margin-left: 0;
+  }
+
+  .slots-days {
+    width: 100%;
+  }
+
+  .slots-days button {
+    flex: 1;
+    padding: 0;
+  }
+
+  .agenda {
+    min-width: 0;
   }
 }
 
