@@ -449,9 +449,12 @@ const app = createApp({
     const copySourceYear = ref(state.settings.year - 1);
     const search = ref("");
     const groupSearch = ref("");
+    const groupListSearch = ref("");
     const selectedGroupId = ref("band-1");
-    const musicianBandToAddId = ref("");
-    const groupMemberToAddId = ref("");
+    const musicianFilter = ref("all");
+    // Formulaires tels qu'ouverts : sert à signaler les modifications non enregistrées.
+    const musicianFormSnapshot = ref("");
+    const groupFormSnapshot = ref("");
     const holidayWeekToAdd = ref("");
     const preparedStudentInvoices = ref(false);
     const studentInvoiceDocuments = ref([]);
@@ -761,13 +764,14 @@ const app = createApp({
     }
 
     function newCourseAt(day, time) {
+      if (!startNewMusician()) return;
       activeView.value = "people";
-      startNewMusician();
       Object.assign(musicianForm, { hasIndividualCourse: true, weekday: day, startTime: time });
       slotsSelection.value = null;
     }
 
     function newGroupAt(day, time) {
+      if (!confirmDiscardChanges(groupFormDirty.value)) return;
       activeView.value = "groups";
       resetGroupForm();
       Object.assign(groupForm, { weekday: day, startTime: time });
@@ -775,6 +779,7 @@ const app = createApp({
     }
 
     function openBandInGroups(bandId) {
+      if (bandId !== selectedGroupId.value && !confirmDiscardChanges(groupFormDirty.value)) return;
       activeView.value = "groups";
       selectGroup(bandId);
     }
@@ -818,43 +823,128 @@ const app = createApp({
     });
     const viewUsesTerm = computed(() => ["dashboard", "attendance", "signatures", "people", "billing"].includes(activeView.value));
 
+    function matchesMusicianSearch(musician, query) {
+      if (!query) return true;
+      return `${fullName(musician)} ${musician.email || ""}`.toLowerCase().includes(query);
+    }
+
+    function musicianHasCourse(musician) {
+      return state.individualCourses.some((course) => course.musicianId === musician.id && course.active !== false);
+    }
+
+    function musicianInBandType(musician, type) {
+      return state.bands.some((band) => band.type === type && band.memberIds.includes(musician.id));
+    }
+
+    const MUSICIAN_FILTER_TESTS = {
+      all: () => true,
+      course: musicianHasCourse,
+      bands: (musician) => musicianInBandType(musician, "independent"),
+      workshop: (musician) => musicianInBandType(musician, "workshop"),
+    };
+
+    const musicianFilters = computed(() => {
+      const filters = [];
+      if (canAny(["MUSICIENS_READ", "MUSICIENS_WRITE"])) {
+        [["all", "Tous"], ["course", "Cours"], ["bands", "Groupes"], ["workshop", "Ateliers"]].forEach(([value, label]) => {
+          filters.push({ value, label, count: activeMusicians.value.filter(MUSICIAN_FILTER_TESTS[value]).length });
+        });
+      }
+      if (can("MUSICIENS_ARCHIVED")) filters.push({ value: "archived", label: "Archivés", count: archivedMusicians.value.length });
+      return filters;
+    });
+
+    const activeMusicianFilter = computed(() => (
+      musicianFilters.value.some((filter) => filter.value === musicianFilter.value)
+        ? musicianFilter.value
+        : musicianFilters.value[0]?.value || "all"
+    ));
+
     const filteredMusicians = computed(() => {
       const q = search.value.trim().toLowerCase();
-      const musicians = sortByName(activeMusicians.value);
-      if (!q) return musicians;
-      return musicians.filter((musician) => fullName(musician).toLowerCase().includes(q));
+      const test = MUSICIAN_FILTER_TESTS[activeMusicianFilter.value] || MUSICIAN_FILTER_TESTS.all;
+      return sortByName(activeMusicians.value).filter((musician) => matchesMusicianSearch(musician, q) && test(musician));
     });
-    const activeMusicianCountLabel = computed(() => {
-      const count = activeMusicians.value.length;
-      return `${count} musicien${count > 1 ? "s" : ""} actif${count > 1 ? "s" : ""}`;
+
+    const filteredArchivedMusicians = computed(() => {
+      const q = search.value.trim().toLowerCase();
+      return archivedMusicians.value.filter((musician) => matchesMusicianSearch(musician, q));
     });
 
     const selectedGroup = computed(() => state.bands.find((band) => band.id === selectedGroupId.value) || state.bands[0]);
 
-    const filteredGroupMusicians = computed(() => {
-      const q = groupSearch.value.trim().toLowerCase();
-      const musicians = sortByName(activeMusicians.value);
-      if (!q) return musicians;
-      return musicians.filter((musician) => fullName(musician).toLowerCase().includes(q));
+    const sortedIndependentBands = computed(() => [...independentBands.value].sort((a, b) => a.name.localeCompare(b.name, "fr")));
+    const sortedWorkshopBands = computed(() => [...workshopBands.value].sort((a, b) => a.name.localeCompare(b.name, "fr")));
+
+    /** « Jeu 18:00–19:15 », ou vide pour un groupe à placer. */
+    function bandScheduleLabel(band) {
+      if (!band?.weekday || !band.startTime) return "";
+      const minutes = durationMinutes(state.settings, band.type === "workshop" ? "workshop" : "group", band.durationMinutes);
+      return `${band.weekday.slice(0, 3)} ${band.startTime}–${minutesToTime(timeToMinutes(band.startTime) + minutes)}`;
+    }
+
+    function personInitials(person) {
+      return `${person?.firstName?.[0] || ""}${person?.lastName?.[0] || ""}`.toUpperCase() || "?";
+    }
+
+    function courseSummary(musician) {
+      const course = state.individualCourses.find((item) => item.musicianId === musician.id && item.active !== false);
+      if (!course) return "";
+      const teacher = teachersById.value[course.teacherId];
+      return [course.instrument, teacher?.firstName].filter(Boolean).join(" · ");
+    }
+
+    const groupSections = computed(() => {
+      const q = groupListSearch.value.trim().toLowerCase();
+      const matches = (band) => !q || band.name.toLowerCase().includes(q);
+      return [
+        { key: "workshop", label: "Ateliers", bands: sortedWorkshopBands.value.filter(matches) },
+        { key: "independent", label: "Groupes musicaux", bands: sortedIndependentBands.value.filter(matches) },
+      ].filter((section) => section.bands.length);
     });
 
-    const musicianSelectedBands = computed(() => independentBands.value
-      .filter((band) => musicianForm.bandIds.includes(band.id))
-      .sort((a, b) => a.name.localeCompare(b.name, "fr")));
+    function bandMemberPreview(band) {
+      const musicians = sortByName(uniqueIds(band.memberIds).map((id) => musiciansById.value[id]).filter(Boolean));
+      return { shown: musicians.slice(0, 4), more: Math.max(0, musicians.length - 4) };
+    }
 
-    const musicianAvailableBands = computed(() => independentBands.value
-      .filter((band) => !musicianForm.bandIds.includes(band.id))
-      .sort((a, b) => a.name.localeCompare(b.name, "fr")));
+    function courseTimeLabel(course) {
+      const end = timeToMinutes(course.startTime) + durationMinutes(state.settings, "course");
+      return `${course.weekday.slice(0, 3)} ${course.startTime}–${minutesToTime(end)}`;
+    }
 
-    const selectedGroupMembers = computed(() => sortByName(
-      groupForm.memberIds.map((id) => musiciansById.value[id]).filter(Boolean),
-    ));
-
-    const availableGroupMembers = computed(() => {
+    /** Membres cochés en tête, puis les autres musiciens actifs ; filtre sur le nom. */
+    const groupMemberRows = computed(() => {
       const q = groupSearch.value.trim().toLowerCase();
-      const musicians = sortByName(activeMusicians.value.filter((musician) => !groupForm.memberIds.includes(musician.id)));
-      if (!q) return musicians;
-      return musicians.filter((musician) => fullName(musician).toLowerCase().includes(q));
+      const rows = sortByName(activeMusicians.value)
+        .filter((musician) => matchesMusicianSearch(musician, q))
+        .map((musician) => ({
+          musician,
+          course: courseSummary(musician),
+          otherBands: state.bands
+            .filter((band) => band.id !== selectedGroupId.value && band.memberIds.includes(musician.id))
+            .map((band) => band.name)
+            .join(", "),
+        }));
+      const members = rows.filter((row) => groupForm.memberIds.includes(row.musician.id)).map((row) => ({ ...row, checked: true }));
+      const others = rows.filter((row) => !groupForm.memberIds.includes(row.musician.id)).map((row, index) => ({
+        ...row,
+        checked: false,
+        firstOther: index === 0 && members.length > 0,
+      }));
+      return [...members, ...others];
+    });
+
+    const groupFormDirty = computed(() => JSON.stringify(groupForm) !== groupFormSnapshot.value);
+    const musicianFormDirty = computed(() => musicianFormOpen.value && JSON.stringify(musicianForm) !== musicianFormSnapshot.value);
+
+    const musicianSheetSummary = computed(() => {
+      const parts = [];
+      if (musicianForm.hasIndividualCourse) parts.push(`Cours de ${musicianForm.instrument || "musique"}`);
+      if (musicianForm.bandIds.length) parts.push(countLabel(musicianForm.bandIds.length, "groupe"));
+      const workshop = musicianForm.inWorkshop && state.bands.find((band) => band.id === musicianForm.workshopBandId);
+      if (workshop) parts.push(workshop.name);
+      return parts.join(" · ") || "Aucune activité";
     });
 
     const selectedHolidayWeeks = computed(() => [...(state.settings.schoolHolidayWeeks || [])].sort((a, b) => a - b));
@@ -1760,6 +1850,10 @@ const app = createApp({
       await setAttendanceStatus(entityType, entityId, week, next);
     }
 
+    function confirmDiscardChanges(dirty) {
+      return !dirty || window.confirm("Des modifications ne sont pas enregistrées. Les abandonner ?");
+    }
+
     function resetMusicianForm() {
       editingMusicianId.value = null;
       musicianFormOpen.value = false;
@@ -1778,12 +1872,23 @@ const app = createApp({
         weekday: "Lundi",
         startTime: timeSlots.value[0] || "11:30",
       });
-      musicianBandToAddId.value = musicianAvailableBands.value[0]?.id || "";
+      musicianFormSnapshot.value = JSON.stringify(musicianForm);
     }
 
     function startNewMusician() {
+      if (!confirmDiscardChanges(musicianFormDirty.value)) return false;
       resetMusicianForm();
       musicianFormOpen.value = true;
+      scrollToMusicianSheet();
+      return true;
+    }
+
+    // Sur une colonne, la fiche s'ouvre au-dessus de la liste ; au-delà elle reste visible à droite.
+    function scrollToMusicianSheet() {
+      if (!window.matchMedia("(max-width: 1240px)").matches) return;
+      nextTick(() => {
+        document.getElementById("musician-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     }
 
     function resetTeacherForm() {
@@ -1875,6 +1980,13 @@ const app = createApp({
 
     function editMusician(musician) {
       if (!can("MUSICIENS_WRITE")) return;
+      if (editingMusicianId.value !== musician.id && !confirmDiscardChanges(musicianFormDirty.value)) return;
+      loadMusicianForm(musician);
+      activeView.value = "people";
+      scrollToMusicianSheet();
+    }
+
+    function loadMusicianForm(musician) {
       const course = state.individualCourses.find((item) => item.musicianId === musician.id);
       const workshopBand = workshopBands.value.find((band) => band.memberIds.includes(musician.id));
       editingMusicianId.value = musician.id;
@@ -1894,24 +2006,20 @@ const app = createApp({
         weekday: course?.weekday || "Lundi",
         startTime: course?.startTime || timeSlots.value[0] || "11:30",
       });
-      musicianBandToAddId.value = musicianAvailableBands.value[0]?.id || "";
-      activeView.value = "people";
-      nextTick(() => {
-        document.getElementById("musician-editor-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
+      musicianFormSnapshot.value = JSON.stringify(musicianForm);
     }
 
-    function addMusicianBand() {
+    function toggleMusicianBand(bandId) {
       if (!can("MUSICIENS_WRITE")) return;
-      if (!musicianBandToAddId.value || musicianForm.bandIds.includes(musicianBandToAddId.value)) return;
-      musicianForm.bandIds = [...musicianForm.bandIds, musicianBandToAddId.value];
-      musicianBandToAddId.value = musicianAvailableBands.value[0]?.id || "";
+      musicianForm.bandIds = musicianForm.bandIds.includes(bandId)
+        ? musicianForm.bandIds.filter((id) => id !== bandId)
+        : [...musicianForm.bandIds, bandId];
     }
 
-    function removeMusicianBand(bandId) {
+    function setMusicianWorkshop(bandId) {
       if (!can("MUSICIENS_WRITE")) return;
-      musicianForm.bandIds = musicianForm.bandIds.filter((id) => id !== bandId);
-      musicianBandToAddId.value = musicianAvailableBands.value[0]?.id || "";
+      musicianForm.inWorkshop = Boolean(bandId);
+      if (bandId) musicianForm.workshopBandId = bandId;
     }
 
     function courseSlotReason(slot) {
@@ -2056,7 +2164,7 @@ const app = createApp({
       await syncMusicianBandMemberships(musician.id);
       await syncMusicianCourse(musician.id);
 
-      resetMusicianForm();
+      loadMusicianForm(musician);
     }
 
     async function deleteMusician(musicianId) {
@@ -2076,6 +2184,7 @@ const app = createApp({
         errorMessage: "Musicien archivé localement",
       });
       if (editingMusicianId.value === musicianId) resetMusicianForm();
+      musicianFilter.value = "all";
     }
 
     async function restoreMusician(musicianId) {
@@ -2103,7 +2212,28 @@ const app = createApp({
         durationMinutes: band.durationMinutes || DEFAULT_GROUP_MINUTES,
         memberIds: uniqueIds(band.memberIds),
       });
-      groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
+      groupFormSnapshot.value = JSON.stringify(groupForm);
+    }
+
+    function pickGroup(groupId) {
+      if (groupId !== selectedGroupId.value && !confirmDiscardChanges(groupFormDirty.value)) return;
+      selectGroup(groupId);
+    }
+
+    function startNewGroup() {
+      if (!confirmDiscardChanges(groupFormDirty.value)) return;
+      resetGroupForm();
+    }
+
+    function cancelGroupEdit() {
+      const groupId = selectedGroupId.value || state.bands[0]?.id;
+      if (groupId) selectGroup(groupId);
+      else resetGroupForm();
+    }
+
+    function openGroupInSlots() {
+      if (groupForm.weekday) slotsDay.value = groupForm.weekday;
+      activeView.value = "slots";
     }
 
     function resetGroupForm() {
@@ -2117,7 +2247,7 @@ const app = createApp({
         durationMinutes: DEFAULT_GROUP_MINUTES,
         memberIds: [],
       });
-      groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
+      groupFormSnapshot.value = JSON.stringify(groupForm);
     }
 
     function resetFormsAfterStateLoad() {
@@ -2169,22 +2299,23 @@ const app = createApp({
         ? { ...savedBand, type: apiBandTypeToUi(savedBand.type), memberIds: uniqueIds(savedBand.memberIds) }
         : { ...payload, memberIds: uniqueIds(payload.memberIds) };
       Object.assign(band, normalizedBand);
-      if (!existing) {
-        state.bands.push(band);
-        selectedGroupId.value = band.id;
-      }
+      if (!existing) state.bands.push(band);
+      selectGroup(band.id);
     }
 
     async function deleteGroup(groupId) {
       if (!can("GROUPS_WRITE")) return;
       if (!ensureStructureMutable()) return;
+      const band = state.bands.find((item) => item.id === groupId);
+      if (!window.confirm(`Supprimer définitivement « ${band?.name || "ce groupe"} » ?`)) return;
       state.bands = state.bands.filter((band) => band.id !== groupId);
       state.attendance = state.attendance.filter((entry) => !(entry.entityType === "workshop" && entry.entityId === groupId));
       await requestResource("DELETE", `bands/${groupId}`, null, {
         successMessage: "Groupe supprimé",
         errorMessage: "Groupe supprimé localement",
       });
-      resetGroupForm();
+      selectedGroupId.value = "";
+      cancelGroupEdit();
     }
 
     function resetExpenseForm() {
@@ -2258,17 +2389,11 @@ const app = createApp({
       if (editingExpenseId.value === expenseId) resetExpenseForm();
     }
 
-    function addGroupMember() {
+    function toggleGroupMember(musicianId) {
       if (!can("GROUPS_WRITE")) return;
-      if (!groupMemberToAddId.value || groupForm.memberIds.includes(groupMemberToAddId.value)) return;
-      groupForm.memberIds = uniqueIds([...groupForm.memberIds, groupMemberToAddId.value]);
-      groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
-    }
-
-    function removeGroupMember(musicianId) {
-      if (!can("GROUPS_WRITE")) return;
-      groupForm.memberIds = uniqueIds(groupForm.memberIds.filter((id) => id !== musicianId));
-      groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
+      groupForm.memberIds = groupForm.memberIds.includes(musicianId)
+        ? groupForm.memberIds.filter((id) => id !== musicianId)
+        : uniqueIds([...groupForm.memberIds, musicianId]);
     }
 
     async function prepareAllStudentInvoices() {
@@ -4005,10 +4130,32 @@ const app = createApp({
       viewUsesTerm,
       search,
       groupSearch,
+      groupListSearch,
+      musicianFilter,
+      musicianFilters,
+      activeMusicianFilter,
+      filteredArchivedMusicians,
+      sortedIndependentBands,
+      sortedWorkshopBands,
+      bandScheduleLabel,
+      courseTimeLabel,
+      personInitials,
+      courseSummary,
+      groupSections,
+      bandMemberPreview,
+      groupMemberRows,
+      groupFormDirty,
+      musicianFormDirty,
+      musicianSheetSummary,
+      toggleMusicianBand,
+      setMusicianWorkshop,
+      toggleGroupMember,
+      pickGroup,
+      startNewGroup,
+      cancelGroupEdit,
+      openGroupInSlots,
       selectedGroupId,
       selectedGroup,
-      musicianBandToAddId,
-      groupMemberToAddId,
       holidayWeekToAdd,
       preparedStudentInvoices,
       studentInvoiceDocuments,
@@ -4087,15 +4234,9 @@ const app = createApp({
       durationMinutes,
       GROUP_DURATIONS,
       musicianRows,
-      activeMusicianCountLabel,
       billableStudentRows,
       attendanceCourseRows,
       attendanceWorkshopRows,
-      filteredGroupMusicians,
-      musicianSelectedBands,
-      musicianAvailableBands,
-      selectedGroupMembers,
-      availableGroupMembers,
       selectedHolidayWeeks,
       availableHolidayWeeks,
       toasts,
@@ -4132,8 +4273,6 @@ const app = createApp({
       resetMusicianForm,
       startNewMusician,
       editMusician,
-      addMusicianBand,
-      removeMusicianBand,
       saveMusician,
       deleteMusician,
       restoreMusician,
@@ -4148,8 +4287,6 @@ const app = createApp({
       resetGroupForm,
       saveGroup,
       deleteGroup,
-      addGroupMember,
-      removeGroupMember,
       resetExpenseForm,
       editExpense,
       saveExpense,
@@ -5206,287 +5343,334 @@ const app = createApp({
           </div>
         </section>
 
-        <section v-if="activeView === 'people' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE', 'MUSICIENS_ARCHIVED'])" class="view-stack">
-          <section v-if="can('MUSICIENS_WRITE')" id="musician-editor-panel" class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>{{ musicianFormOpen ? (editingMusicianId ? 'Éditer un musicien' : 'Créer un musicien') : 'Gestion des musiciens' }}</h2>
-                <span>{{ musicianFormOpen ? 'Groupes multiples et cours individuel optionnel' : 'Ouvrez le formulaire uniquement lorsque vous en avez besoin' }}</span>
+        <section v-if="activeView === 'people' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE', 'MUSICIENS_ARCHIVED'])" class="view-stack repertoire-view">
+          <div class="repertoire-toolbar">
+            <input v-model="search" class="search" type="search" placeholder="Rechercher un musicien" aria-label="Rechercher un musicien" />
+            <div v-if="musicianFilters.length > 1" class="segmented repertoire-filters" role="group" aria-label="Filtrer les musiciens">
+              <button
+                v-for="filter in musicianFilters"
+                :key="filter.value"
+                type="button"
+                :aria-pressed="activeMusicianFilter === filter.value ? 'true' : 'false'"
+                @click="musicianFilter = filter.value"
+              >{{ filter.label }}<small>{{ filter.count }}</small></button>
+            </div>
+            <button v-if="can('MUSICIENS_WRITE')" type="button" class="primary-button repertoire-new" @click="startNewMusician">Nouveau musicien</button>
+          </div>
+
+          <div :class="['repertoire-layout', { 'with-sheet': can('MUSICIENS_WRITE') && activeMusicianFilter !== 'archived', 'sheet-open': musicianFormOpen }]">
+            <section v-if="activeMusicianFilter !== 'archived'" class="repertoire-card" aria-label="Musiciens actifs">
+              <div class="musician-row musician-row-head" aria-hidden="true">
+                <span></span>
+                <span>Musicien</span>
+                <span>Cours individuel</span>
+                <span>Groupes</span>
+                <span class="num">À payer · {{ selectedTerm?.name || 'trimestre' }}</span>
               </div>
-              <button class="ghost-button" @click="startNewMusician">Nouveau musicien</button>
-            </div>
+              <ul v-if="musicianRows.length" class="musician-list">
+                <li v-for="row in musicianRows" :key="row.musician.id">
+                  <component
+                    :is="can('MUSICIENS_WRITE') ? 'button' : 'div'"
+                    :type="can('MUSICIENS_WRITE') ? 'button' : undefined"
+                    :class="['musician-row', { selected: musicianFormOpen && editingMusicianId === row.musician.id }]"
+                    :aria-current="musicianFormOpen && editingMusicianId === row.musician.id ? 'true' : undefined"
+                    @click="editMusician(row.musician)"
+                  >
+                    <span class="person-avatar" aria-hidden="true">{{ personInitials(row.musician) }}</span>
+                    <span class="musician-name">
+                      <strong>{{ fullName(row.musician) }}</strong>
+                      <small>{{ row.musician.email || '—' }}</small>
+                    </span>
+                    <span class="musician-course">
+                      <template v-if="row.course && row.course.active !== false">
+                        {{ courseSummary(row.musician) }}
+                        <small>{{ courseTimeLabel(row.course) }}</small>
+                      </template>
+                      <span v-else class="muted">Pas de cours</span>
+                    </span>
+                    <span class="band-chips">
+                      <span v-for="band in row.bands" :key="band.id" :class="['band-chip', band.type]">{{ band.name }}</span>
+                      <span v-if="!row.bands.length" class="muted">Aucun groupe</span>
+                    </span>
+                    <span class="musician-due num">{{ billingMoney(row.totalDue) }}</span>
+                  </component>
+                </li>
+              </ul>
+              <p v-else class="empty-state">{{ search ? 'Aucun musicien ne correspond à la recherche.' : 'Aucun musicien dans cette catégorie.' }}</p>
+            </section>
 
-            <div v-if="musicianFormOpen" class="collapsible-editor">
-            <div class="musician-editor">
-              <label>
-                Prénom
-                <input v-model="musicianForm.firstName" placeholder="Prénom" />
-              </label>
-              <label>
-                Nom
-                <input v-model="musicianForm.lastName" placeholder="Nom" />
-              </label>
-              <label>
-                Adresse mail
-                <input type="email" v-model="musicianForm.email" placeholder="nom@exemple.fr" />
-              </label>
-            </div>
-
-            <div class="editor-grid">
-              <div>
-                <h3>Groupes musicaux</h3>
-                <div class="bucket-picker compact-bucket">
-                  <div class="bucket-add">
-                    <select v-model="musicianBandToAddId">
-                      <option value="">Choisir un groupe</option>
-                      <option v-for="band in musicianAvailableBands" :key="band.id" :value="band.id">{{ band.name }}</option>
-                    </select>
-                    <button class="icon-button" @click="addMusicianBand" :disabled="!musicianBandToAddId">+</button>
-                  </div>
-                  <div class="bucket-list">
-                    <article v-for="band in musicianSelectedBands" :key="band.id" class="bucket-item">
-                      <span>{{ band.name }}</span>
-                      <button @click="removeMusicianBand(band.id)" :aria-label="'Retirer ' + band.name"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
-                    </article>
-                    <p v-if="!musicianSelectedBands.length" class="empty-state">Aucun groupe musical</p>
-                  </div>
-                </div>
-                <h3 class="section-subtitle">Groupe de travail</h3>
-                <label class="check-label inline-check">
-                  <input type="checkbox" v-model="musicianForm.inWorkshop" />
-                  Inscrit à un groupe de travail
-                </label>
-                <select v-model="musicianForm.workshopBandId" :disabled="!musicianForm.inWorkshop">
-                  <option v-for="band in workshopBands" :key="band.id" :value="band.id">{{ band.name }}</option>
-                </select>
-              </div>
-
-              <div>
-                <h3>Cours individuel</h3>
-                <label class="check-label inline-check">
-                  <input type="checkbox" v-model="musicianForm.hasIndividualCourse" />
-                  Inscrit sur un créneau hebdomadaire
-                </label>
-                <div class="course-editor" :class="{ disabled: !musicianForm.hasIndividualCourse }">
-                  <label>
-                    Professeur
-                    <select v-model="musicianForm.teacherId" :disabled="!musicianForm.hasIndividualCourse">
-                      <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
-                    </select>
-                  </label>
-                  <label>
-                    Instrument
-                    <input v-model="musicianForm.instrument" :disabled="!musicianForm.hasIndividualCourse" />
-                  </label>
-                  <label>
-                    Jour
-                    <select v-model="musicianForm.weekday" :disabled="!musicianForm.hasIndividualCourse">
-                      <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
-                    </select>
-                  </label>
-                  <label>
-                    Créneau
-                    <select v-model="musicianForm.startTime" :disabled="!musicianForm.hasIndividualCourse">
-                      <option v-for="slot in timeSlots" :key="slot" :value="slot" :disabled="isSlotDisabled(slot) && slot !== musicianForm.startTime">
-                        {{ slot }}{{ isSlotDisabled(slot) ? ' · ' + courseSlotReason(slot) : '' }}
-                      </option>
-                    </select>
-                  </label>
-                  <label class="check-label inline-check">
-                    <input type="checkbox" v-model="musicianForm.sharedSlot" :disabled="!musicianForm.hasIndividualCourse" />
-                    Créneau partagé
-                  </label>
-                </div>
-                <p v-if="slotTakenByOtherMusician()" class="form-warning">Ce créneau n’est pas disponible : {{ courseSlotReason(musicianForm.startTime) }}. Un créneau partagé n’est possible qu’entre deux cours qui commencent à la même heure.</p>
-              </div>
-            </div>
-
-            <div class="form-actions">
-              <button class="primary-button" @click="saveMusician" :disabled="slotTakenByOtherMusician()">
-                {{ editingMusicianId ? 'Enregistrer' : 'Créer le musicien' }}
-              </button>
-              <button class="ghost-button" @click="resetMusicianForm">Annuler</button>
-            </div>
-            </div>
-          </section>
-
-          <section v-if="canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="panel">
-            <div class="panel-head musicians-head">
-              <div>
-                <h2>Musiciens</h2>
-                <span>{{ activeMusicianCountLabel }}</span>
-              </div>
-              <input v-model="search" class="search" placeholder="Rechercher un musicien" />
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Musicien</th>
-                  <th>Cours individuel</th>
-                  <th>Groupes</th>
-                  <th class="num">À payer trimestre</th>
-                  <th v-if="can('MUSICIENS_WRITE')" class="actions-col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in musicianRows" :key="row.musician.id">
-                  <td><strong>{{ fullName(row.musician) }}</strong></td>
-                  <td>
-                    <span v-if="row.course">{{ row.course.instrument }} avec {{ teachersById[row.course.teacherId]?.firstName || 'professeur inconnu' }} - {{ row.course.weekday }} {{ row.course.startTime }}</span>
-                    <span v-else class="muted">Aucun</span>
-                  </td>
-                  <td>
-                    <span v-if="row.bands.length">{{ row.bands.map(band => band.name).join(', ') }}</span>
-                    <span v-else class="muted">Aucun</span>
-                  </td>
-                  <td class="num">{{ billingMoney(row.totalDue) }}</td>
-                  <td v-if="can('MUSICIENS_WRITE')" class="row-actions">
-                    <button class="action-button" @click="editMusician(row.musician)" :aria-label="'Modifier ' + fullName(row.musician)" :title="'Modifier ' + fullName(row.musician)">
-                      <svg aria-hidden="true"><use href="#icon-edit"></use></svg>
+            <section v-else class="repertoire-card" aria-label="Musiciens archivés">
+              <ul v-if="filteredArchivedMusicians.length" class="musician-list">
+                <li v-for="musician in filteredArchivedMusicians" :key="musician.id">
+                  <div class="musician-row archived">
+                    <span class="person-avatar" aria-hidden="true">{{ personInitials(musician) }}</span>
+                    <span class="musician-name">
+                      <strong>{{ fullName(musician) }}</strong>
+                      <small>{{ musician.email || '—' }}</small>
+                    </span>
+                    <button type="button" class="ghost-button" @click="restoreMusician(musician.id)">
+                      <svg aria-hidden="true"><use href="#icon-user-check"></use></svg>
+                      Désarchiver
                     </button>
-                    <button class="action-button danger" @click="deleteMusician(row.musician.id)" :aria-label="'Supprimer ' + fullName(row.musician)" :title="'Supprimer ' + fullName(row.musician)">
-                      <svg aria-hidden="true"><use href="#icon-trash"></use></svg>
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="empty-state">Aucun musicien archivé.</p>
+            </section>
 
-          <section v-if="can('MUSICIENS_ARCHIVED')" class="panel archived-musicians-panel">
-            <div class="panel-head">
-              <div>
-                <h2>Musiciens archivés</h2>
-                <span>{{ archivedMusicians.length }} musicien{{ archivedMusicians.length > 1 ? 's' : '' }} archivé{{ archivedMusicians.length > 1 ? 's' : '' }}</span>
+            <aside v-if="can('MUSICIENS_WRITE') && activeMusicianFilter !== 'archived'" id="musician-editor-panel" class="repertoire-card repertoire-sheet" aria-label="Fiche musicien">
+              <template v-if="musicianFormOpen">
+                <header class="sheet-head">
+                  <span class="person-avatar large" aria-hidden="true">{{ personInitials(musicianForm) }}</span>
+                  <div>
+                    <span class="eyebrow">{{ editingMusicianId ? 'Fiche musicien' : 'Nouveau musicien' }}</span>
+                    <h2>{{ (musicianForm.firstName + ' ' + musicianForm.lastName).trim() || 'Sans nom' }}</h2>
+                    <small>{{ musicianSheetSummary }}</small>
+                  </div>
+                </header>
+
+                <section class="sheet-section">
+                  <h3>Identité</h3>
+                  <div class="sheet-fields">
+                    <label>
+                      Prénom
+                      <input v-model="musicianForm.firstName" placeholder="Prénom" />
+                    </label>
+                    <label>
+                      Nom
+                      <input v-model="musicianForm.lastName" placeholder="Nom" />
+                    </label>
+                    <label class="full">
+                      Adresse mail
+                      <input type="email" v-model="musicianForm.email" placeholder="nom@exemple.fr" />
+                    </label>
+                  </div>
+                </section>
+
+                <section class="sheet-section">
+                  <label class="sheet-section-head">
+                    <h3>Cours individuel</h3>
+                    <input type="checkbox" class="switch" v-model="musicianForm.hasIndividualCourse" aria-label="Inscrit à un cours individuel" />
+                  </label>
+                  <template v-if="musicianForm.hasIndividualCourse">
+                    <div class="sheet-fields">
+                      <label>
+                        Professeur
+                        <select v-model="musicianForm.teacherId">
+                          <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        Instrument
+                        <input v-model="musicianForm.instrument" />
+                      </label>
+                      <label>
+                        Jour
+                        <select v-model="musicianForm.weekday">
+                          <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        Créneau
+                        <select v-model="musicianForm.startTime">
+                          <option v-for="slot in timeSlots" :key="slot" :value="slot" :disabled="isSlotDisabled(slot) && slot !== musicianForm.startTime">
+                            {{ slot }}{{ isSlotDisabled(slot) ? ' · ' + courseSlotReason(slot) : '' }}
+                          </option>
+                        </select>
+                      </label>
+                      <label class="check-label inline-check full">
+                        <input type="checkbox" v-model="musicianForm.sharedSlot" />
+                        Créneau partagé
+                      </label>
+                    </div>
+                    <p v-if="slotTakenByOtherMusician()" class="form-warning">Ce créneau n’est pas disponible : {{ courseSlotReason(musicianForm.startTime) }}. Un créneau partagé n’est possible qu’entre deux cours qui commencent à la même heure.</p>
+                    <p v-else class="sheet-ok">
+                      <svg aria-hidden="true"><use href="#icon-check"></use></svg>
+                      Salle libre · {{ courseTimeLabel(musicianForm) }}
+                    </p>
+                  </template>
+                  <p v-else class="sheet-note">Pas de créneau hebdomadaire.</p>
+                </section>
+
+                <section class="sheet-section">
+                  <h3>Groupes musicaux</h3>
+                  <div v-if="sortedIndependentBands.length" class="toggle-chips" role="group" aria-label="Groupes musicaux">
+                    <button
+                      v-for="band in sortedIndependentBands"
+                      :key="band.id"
+                      type="button"
+                      class="toggle-chip"
+                      :aria-pressed="musicianForm.bandIds.includes(band.id) ? 'true' : 'false'"
+                      @click="toggleMusicianBand(band.id)"
+                    >{{ band.name }}<small>{{ bandScheduleLabel(band) || 'à placer' }}</small></button>
+                  </div>
+                  <p v-else class="sheet-note">Aucun groupe musical cette année.</p>
+                </section>
+
+                <section class="sheet-section">
+                  <h3>Atelier</h3>
+                  <div v-if="sortedWorkshopBands.length" class="segmented sheet-segmented" role="group" aria-label="Atelier">
+                    <button type="button" :aria-pressed="musicianForm.inWorkshop ? 'false' : 'true'" @click="setMusicianWorkshop('')">Aucun</button>
+                    <button
+                      v-for="band in sortedWorkshopBands"
+                      :key="band.id"
+                      type="button"
+                      :aria-pressed="musicianForm.inWorkshop && musicianForm.workshopBandId === band.id ? 'true' : 'false'"
+                      @click="setMusicianWorkshop(band.id)"
+                    >{{ band.name }}</button>
+                  </div>
+                  <p v-else class="sheet-note">Aucun atelier cette année.</p>
+                </section>
+
+                <div class="sheet-actions">
+                  <button class="primary-button" @click="saveMusician" :disabled="slotTakenByOtherMusician()">
+                    {{ editingMusicianId ? 'Enregistrer' : 'Créer le musicien' }}
+                  </button>
+                  <button class="ghost-button" @click="resetMusicianForm">{{ musicianFormDirty ? 'Annuler' : 'Fermer' }}</button>
+                  <span v-if="musicianFormDirty" class="dirty-flag">Non enregistré</span>
+                  <button v-if="editingMusicianId" type="button" class="link-button danger-link" @click="deleteMusician(editingMusicianId)">Archiver</button>
+                </div>
+              </template>
+              <div v-else class="sheet-empty">
+                <svg aria-hidden="true"><use href="#icon-nav-people"></use></svg>
+                <p>Choisissez un musicien dans la liste pour ouvrir sa fiche, ou créez-en un.</p>
+                <button type="button" class="ghost-button" @click="startNewMusician">Nouveau musicien</button>
               </div>
-            </div>
-            <div v-if="archivedMusicians.length" class="attendance-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Musicien</th>
-                    <th>Adresse mail</th>
-                    <th class="actions-col">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="musician in archivedMusicians" :key="musician.id">
-                    <td><strong>{{ fullName(musician) }}</strong></td>
-                    <td>{{ musician.email || '—' }}</td>
-                    <td class="row-actions">
-                      <button class="action-button restore" @click="restoreMusician(musician.id)" :aria-label="'Désarchiver ' + fullName(musician)" :title="'Désarchiver ' + fullName(musician)">
-                        <svg aria-hidden="true"><use href="#icon-user-check"></use></svg>
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p v-else class="empty-state">Aucun musicien archivé.</p>
-          </section>
+            </aside>
+          </div>
         </section>
 
-        <section v-if="activeView === 'groups' && !mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" class="view-stack">
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Gestion des groupes</h2>
-                <span>Création et association de musiciens</span>
-              </div>
-              <button v-if="can('GROUPS_WRITE')" class="ghost-button" @click="resetGroupForm">Nouveau groupe</button>
-            </div>
+        <section v-if="activeView === 'groups' && !mustChangePassword && canAny(['GROUPS_READ', 'GROUPS_WRITE'])" class="view-stack repertoire-view">
+          <div class="repertoire-toolbar">
+            <input v-model="groupListSearch" class="search" type="search" placeholder="Rechercher un groupe" aria-label="Rechercher un groupe" />
+            <button v-if="can('GROUPS_WRITE')" type="button" class="primary-button repertoire-new" @click="startNewGroup">Nouveau groupe</button>
+          </div>
 
-            <div class="group-manager">
-              <aside class="group-picker">
+          <div class="groups-layout">
+            <nav class="group-list" aria-label="Groupes et ateliers">
+              <section v-for="section in groupSections" :key="section.key" class="group-list-section">
+                <h2 class="group-list-label"><span>{{ section.label }}</span><span>{{ section.bands.length }}</span></h2>
                 <button
-                  v-for="band in state.bands"
+                  v-for="band in section.bands"
                   :key="band.id"
-                  :class="{ active: selectedGroupId === band.id }"
-                  @click="selectGroup(band.id)"
+                  type="button"
+                  :class="['group-card', { active: selectedGroupId === band.id }]"
+                  :aria-current="selectedGroupId === band.id ? 'true' : undefined"
+                  @click="pickGroup(band.id)"
                 >
-                  <strong>{{ band.name }}</strong>
-                  <span>{{ band.type === 'workshop' ? 'Groupe de travail' : 'Groupe musical' }} - {{ memberCount(band) }} membres</span>
+                  <span class="group-card-top">
+                    <strong>{{ band.name }}</strong>
+                    <span v-if="bandScheduleLabel(band)" class="group-card-when">{{ bandScheduleLabel(band) }}</span>
+                    <span v-else class="todo-pill">À placer</span>
+                  </span>
+                  <span class="group-card-bottom">
+                    <span>{{ band.type === 'workshop' ? (teachersById[band.teacherId] ? fullName(teachersById[band.teacherId]) : 'Sans professeur') : durationLabel(durationMinutes(state.settings, 'group', band.durationMinutes)) }}</span>
+                    <span class="avatar-stack">
+                      <span v-for="musician in bandMemberPreview(band).shown" :key="musician.id" class="person-avatar small" aria-hidden="true">{{ personInitials(musician) }}</span>
+                      <span v-if="bandMemberPreview(band).more" class="person-avatar small more" aria-hidden="true">+{{ bandMemberPreview(band).more }}</span>
+                      <span class="visually-hidden">{{ countLabel(memberCount(band), 'membre') }}</span>
+                      <span v-if="!memberCount(band)" class="muted" aria-hidden="true">Aucun membre</span>
+                    </span>
+                  </span>
                 </button>
-              </aside>
+              </section>
+              <p v-if="!groupSections.length" class="empty-state">{{ state.bands.length ? 'Aucun groupe ne correspond à la recherche.' : 'Aucun groupe cette année.' }}</p>
+            </nav>
 
-              <div class="group-editor">
-                <div class="form-grid compact">
-                  <label>
-                    Nom du groupe
-                    <input v-model="groupForm.name" placeholder="Nom du groupe" :disabled="!can('GROUPS_WRITE')" />
-                  </label>
-                  <label>
-                    Type
-                    <select v-model="groupForm.type" :disabled="!can('GROUPS_WRITE')">
-                      <option value="independent">Groupe musical</option>
-                      <option value="workshop">Groupe de travail</option>
-                    </select>
-                  </label>
-                  <label v-if="groupForm.type === 'workshop'">
-                    Professeur
-                    <select v-model="groupForm.teacherId" :disabled="!can('GROUPS_WRITE')">
-                      <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
-                    </select>
-                  </label>
-                  <label>
-                    Jour
-                    <select v-model="groupForm.weekday" :disabled="!can('GROUPS_WRITE')">
-                      <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
-                    </select>
-                  </label>
-                  <label v-if="groupForm.type !== 'workshop'">
-                    Durée
-                    <select v-model.number="groupForm.durationMinutes" :disabled="!can('GROUPS_WRITE')">
-                      <option v-for="minutes in GROUP_DURATIONS" :key="minutes" :value="minutes">{{ durationLabel(minutes) }}</option>
-                    </select>
-                  </label>
-                  <label>
-                    Horaire · {{ durationLabel(durationMinutes(state.settings, groupForm.type === 'workshop' ? 'workshop' : 'group', groupForm.durationMinutes)) }}
-                    <select v-model="groupForm.startTime" :disabled="!can('GROUPS_WRITE')">
-                      <option value="">À placer (sans horaire)</option>
-                      <option v-for="option in groupStartOptions" :key="option.time" :value="option.time" :disabled="Boolean(option.reason) && option.time !== groupForm.startTime">
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </label>
+            <section v-if="selectedGroupId || can('GROUPS_WRITE')" class="repertoire-card group-detail" aria-label="Fiche du groupe">
+              <header class="group-detail-head">
+                <div>
+                  <span class="eyebrow">{{ selectedGroupId ? (groupForm.type === 'workshop' ? 'Atelier' : 'Groupe musical') : 'Nouveau groupe' }}</span>
+                  <h2>{{ groupForm.name.trim() || 'Sans nom' }}</h2>
                 </div>
-                <p v-if="groupStartWarning" class="form-warning">Cet horaire n’est pas disponible : {{ groupStartWarning }}. Choisissez-en un autre ou laissez le groupe à placer.</p>
+                <span class="group-detail-when">{{ bandScheduleLabel(groupForm) || 'À placer' }} · {{ durationLabel(durationMinutes(state.settings, groupForm.type === 'workshop' ? 'workshop' : 'group', groupForm.durationMinutes)) }}</span>
+                <button v-if="selectedGroupId && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" type="button" class="link-button group-slots-link" @click="openGroupInSlots">
+                  Voir dans Créneaux
+                  <svg aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+                </button>
+              </header>
 
-                <div class="panel-head inner-head">
-                  <h3>Membres</h3>
-                  <input v-model="groupSearch" class="search" placeholder="Rechercher un musicien" />
-                </div>
-                <div class="bucket-picker">
-                  <div class="bucket-source">
-                    <div v-if="can('GROUPS_WRITE')" class="bucket-add">
-                      <select v-model="groupMemberToAddId">
-                        <option value="">Choisir un musicien</option>
-                        <option v-for="musician in availableGroupMembers" :key="musician.id" :value="musician.id">{{ fullName(musician) }}</option>
+              <div class="group-detail-body">
+                <section class="group-settings">
+                  <h3>Réglages</h3>
+                  <div class="segmented sheet-segmented" role="group" aria-label="Type">
+                    <button type="button" :aria-pressed="groupForm.type === 'independent' ? 'true' : 'false'" :disabled="!can('GROUPS_WRITE')" @click="groupForm.type = 'independent'">Groupe musical</button>
+                    <button type="button" :aria-pressed="groupForm.type === 'workshop' ? 'true' : 'false'" :disabled="!can('GROUPS_WRITE')" @click="groupForm.type = 'workshop'">Atelier</button>
+                  </div>
+                  <div class="sheet-fields">
+                    <label class="full">
+                      Nom
+                      <input v-model="groupForm.name" placeholder="Nom du groupe" :disabled="!can('GROUPS_WRITE')" />
+                    </label>
+                    <label v-if="groupForm.type === 'workshop'" class="full">
+                      Professeur
+                      <select v-model="groupForm.teacherId" :disabled="!can('GROUPS_WRITE')">
+                        <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
                       </select>
-                      <button class="icon-button" @click="addGroupMember" :disabled="!groupMemberToAddId">+</button>
+                    </label>
+                    <div v-else class="full sheet-field">
+                      <span>Durée</span>
+                      <div class="segmented sheet-segmented" role="group" aria-label="Durée">
+                        <button
+                          v-for="minutes in GROUP_DURATIONS"
+                          :key="minutes"
+                          type="button"
+                          :aria-pressed="groupForm.durationMinutes === minutes ? 'true' : 'false'"
+                          :disabled="!can('GROUPS_WRITE')"
+                          @click="groupForm.durationMinutes = minutes"
+                        >{{ durationLabel(minutes) }}</button>
+                      </div>
                     </div>
-                    <small>{{ availableGroupMembers.length }} musiciens disponibles</small>
+                    <label>
+                      Jour
+                      <select v-model="groupForm.weekday" :disabled="!can('GROUPS_WRITE')">
+                        <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
+                      </select>
+                    </label>
+                    <label>
+                      Horaire
+                      <select v-model="groupForm.startTime" :disabled="!can('GROUPS_WRITE')">
+                        <option value="">À placer (sans horaire)</option>
+                        <option v-for="option in groupStartOptions" :key="option.time" :value="option.time" :disabled="Boolean(option.reason) && option.time !== groupForm.startTime">
+                          {{ option.label }}
+                        </option>
+                      </select>
+                    </label>
                   </div>
-                  <div class="bucket-target">
-                    <h3>Membres du groupe</h3>
-                    <div class="bucket-list tall">
-                      <article v-for="musician in selectedGroupMembers" :key="musician.id" class="bucket-item">
-                        <span>{{ fullName(musician) }}</span>
-                        <button v-if="can('GROUPS_WRITE')" @click="removeGroupMember(musician.id)" :aria-label="'Retirer ' + fullName(musician)"><svg aria-hidden="true"><use href="#icon-x"></use></svg></button>
-                      </article>
-                      <p v-if="!selectedGroupMembers.length" class="empty-state">Aucun membre sélectionné</p>
-                    </div>
-                  </div>
-                </div>
+                  <p v-if="groupStartWarning" class="form-warning">Cet horaire n’est pas disponible : {{ groupStartWarning }}. Choisissez-en un autre ou laissez le groupe à placer.</p>
+                </section>
 
-                <div v-if="can('GROUPS_WRITE')" class="form-actions">
-                  <button class="primary-button" @click="saveGroup">{{ selectedGroupId ? 'Enregistrer le groupe' : 'Créer le groupe' }}</button>
-                  <button class="ghost-button" @click="resetGroupForm">Annuler</button>
-                  <button v-if="selectedGroupId" class="danger-button standalone" @click="deleteGroup(selectedGroupId)">Supprimer le groupe</button>
-                </div>
+                <section class="group-members">
+                  <h3>Membres · {{ groupForm.memberIds.length }}</h3>
+                  <input v-model="groupSearch" class="search" type="search" placeholder="Filtrer les musiciens" aria-label="Filtrer les musiciens" />
+                  <ul v-if="groupMemberRows.length" class="member-checklist">
+                    <template v-for="row in groupMemberRows" :key="row.musician.id">
+                      <li v-if="row.firstOther" class="member-separator" aria-hidden="true">Autres musiciens</li>
+                      <li>
+                        <label :class="['member-check', { checked: row.checked }]">
+                          <input type="checkbox" :checked="row.checked" :disabled="!can('GROUPS_WRITE')" @change="toggleGroupMember(row.musician.id)" />
+                          <span class="person-avatar" aria-hidden="true">{{ personInitials(row.musician) }}</span>
+                          <span class="member-name">
+                            {{ fullName(row.musician) }}
+                            <small>{{ row.course || 'Pas de cours' }}</small>
+                          </span>
+                          <span v-if="row.otherBands" class="member-other">{{ row.otherBands }}</span>
+                        </label>
+                      </li>
+                    </template>
+                  </ul>
+                  <p v-else class="empty-state">Aucun musicien ne correspond.</p>
+                </section>
               </div>
-            </div>
-          </section>
+
+              <div v-if="can('GROUPS_WRITE')" class="sheet-actions">
+                <button class="primary-button" @click="saveGroup">{{ selectedGroupId ? 'Enregistrer le groupe' : 'Créer le groupe' }}</button>
+                <button class="ghost-button" :disabled="!groupFormDirty" @click="cancelGroupEdit">Annuler</button>
+                <span v-if="groupFormDirty" class="dirty-flag">Modifications non enregistrées</span>
+                <button v-if="selectedGroupId" type="button" class="link-button danger-link" @click="deleteGroup(selectedGroupId)">Supprimer le groupe</button>
+              </div>
+            </section>
+          </div>
         </section>
 
         <section v-if="activeView === 'expenses' && !mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" class="view-stack">

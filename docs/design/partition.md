@@ -223,6 +223,23 @@ Planning hebdomadaire de la salle unique : cours individuels, ateliers et groupe
 - Formulaires : un groupe choisit sa durée (1 h 15 ou 1 h 30) ; les horaires proposés (cours, groupes) affichent la fin du créneau et pourquoi un départ est indisponible (« occupé », « dépasse 14:00 »).
 - Impression (bouton « Imprimer ») : A4 paysage pour l'affichage en salle, la semaine seule sur une page. En-tête « Planning de la salle » en display (année, date d'impression, professeur mis en avant s'il y en a un), légende, agenda aux lignes de 6 mm ; ni filtre, ni colonne latérale, ni créneaux libres, ni repère du jour courant.
 
+### Musiciens et Groupes
+
+Même principe pour les deux écrans : une barre d'outils (recherche en pilule, filtres, bouton principal « Nouveau … » à droite), une liste, une fiche.
+
+- Avatars d'initiales ronds `--avatar-bg` / `--avatar-ink` (34 px dans les listes, 52 px en tête de fiche, 26 px empilés sur les cartes de groupe).
+- Pastilles de groupe : mêmes fonds que le planning, groupe `--rail`, atelier `--card-alt` + contour `--line`.
+- Musiciens :
+  - filtres en contrôle segmenté avec compteurs mono : Tous, Cours, Groupes, Ateliers, Archivés ;
+  - liste en lignes cliquables : avatar, nom et adresse, cours (« Basse · Alex » puis horaire en mono), pastilles de groupes, montant à payer du trimestre en mono ; la ligne ouverte est en `--petrol-tint` avec un filet gauche `--petrol` ;
+  - fiche latérale de 400 px, collante : nom en display 30 px et résumé des activités, puis sections Identité, Cours individuel (interrupteur, disponibilité de la salle en mono), Groupes musicaux (pastilles à bascule, pleines en `--petrol` quand le musicien est inscrit), Atelier (contrôle segmenté « Aucun » + ateliers) ;
+  - l'archivage se fait depuis la fiche (lien brique) ; les archivés se désarchivent depuis leur filtre.
+- Groupes :
+  - colonne de 320 px, cartes rangées par type (Ateliers, Groupes musicaux) : nom, horaire en mono ou pastille laiton « À placer », professeur (atelier) ou durée (groupe), avatars des membres ;
+  - fiche : nom en display 36 px, horaire et durée en pastille mono, lien « Voir dans Créneaux » ; Réglages (type et durée en contrôle segmenté, nom, professeur, jour, horaire) à gauche, Membres à droite en liste à cocher filtrable (membres en tête sur fond pétrole léger, puis « Autres musiciens », avec leur cours et leurs autres groupes en mono).
+- Enregistrement explicite : les modifications d'une fiche (membres compris) attendent le bouton « Enregistrer » ; une pastille laiton « Modifications non enregistrées » le signale, et changer de fiche demande confirmation.
+- Sous 1240 px, la fiche passe au-dessus de la liste quand elle est ouverte ; sous 980 px, la fiche de groupe passe sous la liste ; sous 760 px, les lignes de musicien s'empilent (nom et montant, cours, pastilles).
+
 ### Émargement mobile (390 px)
 
 Saisie rapide des présences d'une journée :

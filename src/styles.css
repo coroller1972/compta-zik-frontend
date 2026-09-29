@@ -563,7 +563,6 @@ select:disabled {
   flex-wrap: wrap;
 }
 
-
 .mfa-status-unavailable {
   display: grid;
   gap: 14px;
@@ -977,11 +976,6 @@ td small {
 
 .attendance-table-wrap {
   overflow: auto;
-}
-
-.archived-musicians-panel {
-  border-color: var(--line);
-  background: var(--card-alt);
 }
 
 .action-button.restore {
@@ -1790,19 +1784,6 @@ td small {
   color: var(--brick-tint-ink);
 }
 
-.musician-editor {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.editor-grid {
-  display: grid;
-  grid-template-columns: minmax(240px, 0.75fr) minmax(360px, 1.25fr);
-  gap: 18px;
-}
-
 .checkbox-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(170px, 1fr));
@@ -1813,10 +1794,6 @@ td small {
   display: grid;
   grid-template-columns: minmax(220px, 0.75fr) minmax(260px, 1.25fr);
   gap: 14px;
-}
-
-.bucket-picker.compact-bucket {
-  grid-template-columns: 1fr;
 }
 
 .bucket-add {
@@ -1934,10 +1911,6 @@ td small {
   align-self: center;
 }
 
-.section-subtitle {
-  margin-top: 18px;
-}
-
 .check-label {
   min-height: var(--control-height);
   display: flex;
@@ -1956,15 +1929,8 @@ td small {
   height: 18px;
 }
 
-
 .inline-check {
   margin-bottom: 12px;
-}
-
-.course-editor {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr));
-  gap: 12px;
 }
 
 .expense-editor {
@@ -1980,10 +1946,6 @@ td small {
 
 .expense-notes {
   grid-column: 1 / -1;
-}
-
-.course-editor.disabled {
-  filter: grayscale(0.3);
 }
 
 .form-warning {
@@ -2176,78 +2138,6 @@ td small {
   font-size: 12px;
 }
 
-.group-manager {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 18px;
-}
-
-.group-picker {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-}
-
-.group-picker button {
-  min-height: var(--control-height);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--card);
-  color: var(--ink);
-  padding: 12px 14px;
-  text-align: left;
-}
-
-.group-picker button:hover:not(.active) {
-  background: var(--card-alt);
-}
-
-.group-picker button:focus-visible {
-  outline: 2px solid var(--petrol);
-  outline-offset: 2px;
-}
-
-.group-picker button.active {
-  border-color: var(--petrol);
-  background: var(--petrol-tint);
-  color: var(--petrol-tint-ink);
-}
-
-.group-picker button.active span {
-  color: var(--petrol-tint-ink);
-}
-
-.group-picker strong,
-.group-picker span {
-  display: block;
-}
-
-.group-picker span {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.group-editor {
-  min-width: 0;
-}
-
-.inner-head {
-  margin-top: 18px;
-}
-
-.member-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 8px;
-  max-height: 380px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 10px;
-  background: var(--card);
-}
-
 @media print {
   @page {
     size: A4 landscape;
@@ -2422,13 +2312,9 @@ td small {
   .form-grid.compact,
   .invoice-summary,
   .term-grid,
-  .musician-editor,
-  .editor-grid,
-  .course-editor,
   .expense-editor,
   .checkbox-list,
   .bucket-picker,
-  .group-manager,
   .account-profile,
   .account-search,
   .password-grid,
@@ -5292,3 +5178,808 @@ td strong {
   }
 }
 
+
+/* Répertoire — Musiciens et Groupes (partition.md §6 « Musiciens et Groupes ») */
+.repertoire-view {
+  gap: 16px;
+}
+
+/* Les filtres défilent seuls sur mobile au lieu d'élargir la colonne. */
+.repertoire-view > *,
+.repertoire-filters {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repertoire-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.repertoire-toolbar .search {
+  width: 280px;
+  max-width: 100%;
+  border-radius: var(--radius-pill);
+  padding: 0 16px;
+}
+
+.repertoire-new {
+  margin-left: auto;
+}
+
+.repertoire-filters button {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.repertoire-filters small {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.repertoire-layout {
+  display: grid;
+  align-items: start;
+  gap: 16px;
+}
+
+.repertoire-layout.with-sheet {
+  grid-template-columns: minmax(0, 1fr) 400px;
+}
+
+.repertoire-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+
+.person-avatar {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--avatar-bg);
+  color: var(--avatar-ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.person-avatar.large {
+  width: 52px;
+  height: 52px;
+  font-size: 17px;
+}
+
+.person-avatar.small {
+  width: 26px;
+  height: 26px;
+  margin-left: -8px;
+  border: 2px solid var(--card);
+  font-size: 10px;
+}
+
+.person-avatar.small:first-child {
+  margin-left: 0;
+}
+
+.person-avatar.more {
+  background: var(--rail);
+  color: var(--ink-soft);
+}
+
+/* Liste des musiciens */
+.musician-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.musician-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px minmax(140px, 1.1fr) minmax(150px, 1.1fr) minmax(0, 1.4fr) 96px;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.musician-list li:last-child .musician-row {
+  border-bottom: 0;
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+button.musician-row:hover {
+  background: var(--card-alt);
+}
+
+button.musician-row:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: -2px;
+}
+
+.musician-row.selected,
+button.musician-row.selected:hover {
+  background: var(--petrol-tint);
+  box-shadow: inset 3px 0 0 var(--petrol);
+}
+
+.musician-row-head {
+  padding-top: 14px;
+  border-bottom: 1.5px solid var(--line-strong);
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.musician-row.archived {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+}
+
+.musician-name,
+.musician-course {
+  min-width: 0;
+}
+
+.musician-name strong {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.musician-name small,
+.musician-course small {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.musician-course {
+  font-size: 13px;
+}
+
+.musician-course small,
+.musician-due {
+  font-family: var(--font-mono);
+}
+
+.musician-due {
+  font-size: 13px;
+}
+
+/* Pastilles de groupes : mêmes fonds que le planning (groupe = --rail, atelier = --card-alt). */
+.band-chips {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.band-chip {
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--rail);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.band-chip.workshop {
+  background: var(--card-alt);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* Fiche latérale */
+.repertoire-sheet {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  overflow: auto;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.sheet-head .eyebrow {
+  display: block;
+  margin: 0;
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.sheet-head small {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.sheet-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.sheet-section h3,
+.group-settings h3,
+.group-members h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.sheet-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.sheet-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sheet-fields label,
+.sheet-field {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sheet-fields .full {
+  grid-column: 1 / -1;
+}
+
+.sheet-fields .check-label {
+  display: flex;
+  margin: 0;
+}
+
+.sheet-ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--petrol-tint-ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.sheet-ok svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.sheet-note {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.toggle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toggle-chip {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.toggle-chip small {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.toggle-chip:hover {
+  border-color: var(--petrol);
+}
+
+.toggle-chip[aria-pressed="true"] {
+  border-color: var(--petrol);
+  background: var(--petrol);
+  color: var(--on-petrol);
+}
+
+/* --on-petrol-muted ne tient pas le contraste sur le pétrole clair du mode nuit. */
+.toggle-chip[aria-pressed="true"] small {
+  color: inherit;
+}
+
+.toggle-chip:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: 2px;
+}
+
+.sheet-segmented {
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.sheet-segmented button {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.dirty-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brass-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dirty-flag::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brass-bright);
+}
+
+.link-button.danger-link {
+  margin-left: auto;
+  color: var(--brick);
+}
+
+.link-button.danger-link:hover {
+  color: var(--brick);
+}
+
+.sheet-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px 12px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.sheet-empty svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.5;
+}
+
+.sheet-empty p {
+  max-width: 260px;
+  margin: 0;
+  font-size: 13px;
+}
+
+input.switch {
+  appearance: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: none;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--track);
+  cursor: pointer;
+}
+
+input.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: transform 0.15s ease;
+}
+
+input.switch:checked {
+  border-color: var(--petrol);
+  background: var(--petrol);
+}
+
+input.switch:checked::after {
+  background: var(--on-petrol);
+  box-shadow: none;
+  transform: translateX(16px);
+}
+
+/* Groupes */
+.groups-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.group-list,
+.group-list-section {
+  display: grid;
+  gap: 6px;
+}
+
+.group-list {
+  gap: 14px;
+}
+
+.group-list-label {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 2px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.group-card {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.group-card:hover:not(.active) {
+  background: var(--card-alt);
+}
+
+.group-card:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: 2px;
+}
+
+.group-card.active {
+  border-color: var(--petrol);
+  background: var(--petrol-tint);
+  box-shadow: inset 3px 0 0 var(--petrol);
+}
+
+.group-card-top,
+.group-card-bottom {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-card-top strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-card-when {
+  flex: none;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.group-card-bottom {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.group-card.active .group-card-when,
+.group-card.active .group-card-bottom {
+  color: var(--petrol-tint-ink);
+}
+
+.group-card.active .person-avatar.small {
+  border-color: var(--petrol-tint);
+}
+
+.todo-pill {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--brass-tint);
+  color: var(--brass-tint-ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.avatar-stack {
+  display: flex;
+  align-items: center;
+}
+
+.group-detail {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.group-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 14px;
+}
+
+.group-detail-head .eyebrow {
+  display: block;
+}
+
+.group-detail-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.group-detail-when {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--card-alt);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.link-button.group-slots-link {
+  min-height: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-slots-link svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.group-detail-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.group-settings,
+.group-members {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.group-members .search {
+  max-width: none;
+}
+
+.member-checklist {
+  max-height: 460px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  list-style: none;
+}
+
+.member-check {
+  display: grid;
+  grid-template-columns: 18px 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.member-checklist li:last-child .member-check {
+  border-bottom: 0;
+}
+
+.member-check.checked {
+  background: color-mix(in srgb, var(--petrol-tint) 60%, var(--card));
+}
+
+.member-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--petrol);
+}
+
+.member-name {
+  min-width: 0;
+}
+
+.member-name small {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.member-other {
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-separator {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--card-alt);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+@media screen and (max-width: 1240px) {
+  .repertoire-layout.with-sheet {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Fiche ouverte au-dessus de la liste ; fermée, l'encart d'invitation est inutile. */
+  .repertoire-layout.sheet-open .repertoire-sheet {
+    order: -1;
+  }
+
+  .repertoire-layout:not(.sheet-open) .repertoire-sheet {
+    display: none;
+  }
+
+  .repertoire-sheet {
+    position: static;
+    max-height: none;
+  }
+
+  .group-detail-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media screen and (max-width: 980px) {
+  .groups-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media screen and (max-width: 760px) {
+  .repertoire-toolbar .search {
+    width: 100%;
+  }
+
+  .repertoire-new {
+    margin-left: 0;
+  }
+
+  .repertoire-filters {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .repertoire-filters button {
+    flex: 1 0 auto;
+  }
+
+  .musician-row-head {
+    display: none;
+  }
+
+  .musician-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    row-gap: 6px;
+    padding: 12px 14px;
+  }
+
+  .musician-row .musician-course,
+  .musician-row .band-chips {
+    grid-column: 2 / -1;
+  }
+
+  .musician-row .musician-due {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .sheet-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .group-detail {
+    padding: 16px;
+  }
+
+  .member-other {
+    max-width: 96px;
+  }
+}
