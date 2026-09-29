@@ -2,13 +2,15 @@
  * Planning de la salle — mêmes règles que le backend (SlotRules) :
  * plages 11:30–14:00 et 16:30–20:00, départs toutes les 30 min, une seule salle,
  * aucun chevauchement le même jour sauf deux cours qui démarrent ensemble quand l'un est partagé.
- * Les durées viennent des réglages de l'année (cours, atelier, groupe).
+ * Durées : cours et atelier selon les réglages de l'année, groupe selon son propre choix (1h15 ou 1h30).
  */
 export const SCHEDULE_WINDOWS = [
   { label: "Midi", start: "11:30", end: "14:00" },
   { label: "Soir", start: "16:30", end: "20:00" },
 ];
-export const STEP_MINUTES = 30;
+export const STEP_MINUTES = 15;
+export const GROUP_DURATIONS = [75, 90];
+export const DEFAULT_GROUP_MINUTES = 90;
 export const ROW_MINUTES = 15;
 
 export function timeToMinutes(time) {
@@ -20,7 +22,7 @@ export function minutesToTime(minutes) {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
-/** Heures de départ proposées (grille de 30 min, dans les plages). */
+/** Heures de départ proposées (grille de 15 min, dans les plages). */
 export function startTimes() {
   return SCHEDULE_WINDOWS.flatMap((window) => {
     const times = [];
@@ -31,12 +33,10 @@ export function startTimes() {
   });
 }
 
-export function durationMinutes(settings, kind) {
-  const hours = {
-    course: settings?.individualCourseHours ?? 0.5,
-    workshop: settings?.workshopHours ?? 1.25,
-    group: settings?.groupHours ?? 1.5,
-  }[kind];
+/** Durée d'occupation : cours et atelier selon l'année, groupe selon sa propre durée (90 min par défaut). */
+export function durationMinutes(settings, kind, groupMinutes) {
+  if (kind === "group") return GROUP_DURATIONS.includes(Number(groupMinutes)) ? Number(groupMinutes) : DEFAULT_GROUP_MINUTES;
+  const hours = kind === "course" ? settings?.individualCourseHours ?? 0.5 : settings?.workshopHours ?? 1.25;
   return Math.round(Number(hours) * 60);
 }
 
@@ -65,7 +65,7 @@ export function occupations({ settings, courses = [], bands = [], isActiveCourse
       kind: bandKind(band),
       weekday: band.weekday,
       start: timeToMinutes(band.startTime),
-      minutes: durationMinutes(settings, bandKind(band)),
+      minutes: durationMinutes(settings, bandKind(band), band.durationMinutes),
       sharedSlot: false,
       item: band,
     }));
@@ -78,7 +78,7 @@ function windowOf(start) {
 
 /** Motif si l'occupation sort de la grille ou de sa plage, sinon null. */
 export function placementError(candidate) {
-  if (candidate.start % STEP_MINUTES !== 0) return "hors de la grille de 30 min";
+  if (candidate.start % STEP_MINUTES !== 0) return "hors de la grille de 15 min";
   const window = windowOf(candidate.start);
   if (!window) return "hors des plages d'ouverture";
   if (candidate.start + candidate.minutes > timeToMinutes(window.end)) return `dépasse ${window.end}`;

@@ -4,6 +4,8 @@ import { createSessionTransport } from "./session-transport.mjs";
 import { AvatarCropDialog } from "./avatar-crop-dialog.mjs";
 import { THEME_CHOICES, THEME_STORAGE_KEY, applyThemePreference, normalizeTheme, readThemePreference, saveThemePreference } from "./theme.mjs";
 import {
+  DEFAULT_GROUP_MINUTES,
+  GROUP_DURATIONS,
   agendaRows,
   durationLabel,
   durationMinutes,
@@ -23,7 +25,6 @@ const DEFAULT_TEACHER_HOURLY_RATE = 54;
 const DEFAULT_GROUP_MEMBERSHIP_FEE = 30;
 const COURSE_DURATION_HOURS = 0.5;
 const WORKSHOP_DURATION_HOURS = 1.25;
-const GROUP_DURATION_HOURS = 1.5;
 const WEEKDAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 const FRENCH_DATE = new Intl.DateTimeFormat("fr-FR", {
   weekday: "long",
@@ -54,7 +55,6 @@ const demoState = {
     groupMembershipFee: DEFAULT_GROUP_MEMBERSHIP_FEE,
     individualCourseHours: COURSE_DURATION_HOURS,
     workshopHours: WORKSHOP_DURATION_HOURS,
-    groupHours: GROUP_DURATION_HOURS,
     schoolHolidayWeeks: [8, 9],
     terms: [
       { id: "t1", name: "Trimestre 1", startWeek: 2, endWeek: 14 },
@@ -173,7 +173,6 @@ function normalizeSnapshot(snapshot) {
       groupMembershipFee: settings.groupMembershipFee == null ? null : Number(settings.groupMembershipFee),
       individualCourseHours: Number(settings.individualCourseHours) || COURSE_DURATION_HOURS,
       workshopHours: Number(settings.workshopHours) || WORKSHOP_DURATION_HOURS,
-      groupHours: Number(settings.groupHours) || GROUP_DURATION_HOURS,
       schoolHolidayWeeks: settings.schoolHolidayWeeks || [],
       terms: settings.terms || [],
     },
@@ -530,6 +529,7 @@ const app = createApp({
       weekday: "Mardi",
       memberIds: [],
       startTime: "",
+      durationMinutes: DEFAULT_GROUP_MINUTES,
     });
     const expenseForm = reactive({
       date: `${state.settings.year}-01-01`,
@@ -664,7 +664,7 @@ const app = createApp({
       });
       const freeCells = timeSlots.value
         .map((time) => timeToMinutes(time))
-        .filter((start) => !dayOccupations.some((occupation) => start < occupation.start + occupation.minutes && occupation.start < start + 30))
+        .filter((start) => !dayOccupations.some((occupation) => start < occupation.start + occupation.minutes && occupation.start < start + 15))
         .map((start) => ({ time: minutesToTime(start), row: agendaRow(start) }));
       return {
         name: day,
@@ -685,7 +685,7 @@ const app = createApp({
         kind: band.type === "workshop" ? "workshop" : "group",
         weekday,
         start: timeToMinutes(time),
-        minutes: durationMinutes(state.settings, band.type === "workshop" ? "workshop" : "group"),
+        minutes: durationMinutes(state.settings, band.type === "workshop" ? "workshop" : "group", band.durationMinutes),
         sharedSlot: false,
       };
     }
@@ -727,6 +727,7 @@ const app = createApp({
         teacherId: band.type === "workshop" ? band.teacherId : undefined,
         weekday: selection.day,
         startTime: selection.time,
+        durationMinutes: band.type === "workshop" ? null : band.durationMinutes || DEFAULT_GROUP_MINUTES,
         memberIds: uniqueIds(band.memberIds),
       };
       const saved = await requestResource("PUT", `bands/${band.id}`, payload, {
@@ -758,8 +759,8 @@ const app = createApp({
     }
 
     const groupStartOptions = computed(() => {
-      const candidate = { id: selectedGroupId.value || null, type: groupForm.type };
-      const minutes = durationMinutes(state.settings, groupForm.type === "workshop" ? "workshop" : "group");
+      const candidate = { id: selectedGroupId.value || null, type: groupForm.type, durationMinutes: groupForm.durationMinutes };
+      const minutes = durationMinutes(state.settings, groupForm.type === "workshop" ? "workshop" : "group", groupForm.durationMinutes);
       return timeSlots.value.map((time) => {
         const reason = unavailableReason(bandCandidate(candidate, groupForm.weekday, time), roomOccupations.value);
         return { time, reason, label: `${time}–${minutesToTime(timeToMinutes(time) + minutes)}${reason ? ` · ${reason}` : ""}` };
@@ -1639,7 +1640,6 @@ const app = createApp({
         groupMembershipFee: Number(state.settings.groupMembershipFee) || 0,
         individualCourseHours: Number(state.settings.individualCourseHours) || COURSE_DURATION_HOURS,
         workshopHours: Number(state.settings.workshopHours) || WORKSHOP_DURATION_HOURS,
-        groupHours: Number(state.settings.groupHours) || GROUP_DURATION_HOURS,
         schoolHolidayWeeks: selectedHolidayWeeks.value,
         terms: state.settings.terms.map((term, index) => ({
           id: term.id,
@@ -1651,7 +1651,7 @@ const app = createApp({
       };
 
       if (!can("CONFIG_FINANCIALS")) {
-        for (const field of ["teacherHourlyRate", "groupMembershipFee", "individualCourseHours", "workshopHours", "groupHours"]) delete payload[field];
+        for (const field of ["teacherHourlyRate", "groupMembershipFee", "individualCourseHours", "workshopHours"]) delete payload[field];
       }
       if (!can("CONFIG_TERMS")) delete payload.terms;
       if (!can("CONFIG_HOLIDAYS")) delete payload.schoolHolidayWeeks;
@@ -2079,6 +2079,7 @@ const app = createApp({
         teacherId: band.teacherId || state.teachers[0]?.id || "",
         weekday: band.weekday || "Mardi",
         startTime: band.startTime || "",
+        durationMinutes: band.durationMinutes || DEFAULT_GROUP_MINUTES,
         memberIds: uniqueIds(band.memberIds),
       });
       groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
@@ -2092,6 +2093,7 @@ const app = createApp({
         teacherId: state.teachers[0]?.id || "",
         weekday: "Mardi",
         startTime: "",
+        durationMinutes: DEFAULT_GROUP_MINUTES,
         memberIds: [],
       });
       groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
@@ -2129,6 +2131,7 @@ const app = createApp({
         teacherId: groupForm.type === "workshop" ? teacherId : undefined,
         weekday: groupForm.weekday,
         startTime: groupForm.startTime || null,
+        durationMinutes: groupForm.type === "workshop" ? null : groupForm.durationMinutes,
         memberIds: uniqueIds(groupForm.memberIds),
       };
       const savedBand = await requestResource(
@@ -4058,6 +4061,7 @@ const app = createApp({
       courseSlotReason,
       durationLabel,
       durationMinutes,
+      GROUP_DURATIONS,
       musicianRows,
       activeMusicianCountLabel,
       billableStudentRows,
@@ -5055,7 +5059,7 @@ const app = createApp({
             <ul class="slots-legend" aria-label="Légende du planning">
               <li><span class="slot-swatch course" aria-hidden="true"></span>Cours · {{ durationLabel(durationMinutes(state.settings, 'course')) }}</li>
               <li><span class="slot-swatch workshop" aria-hidden="true"></span>Atelier · {{ durationLabel(durationMinutes(state.settings, 'workshop')) }}</li>
-              <li><span class="slot-swatch group" aria-hidden="true"></span>Groupe · {{ durationLabel(durationMinutes(state.settings, 'group')) }}</li>
+              <li><span class="slot-swatch group" aria-hidden="true"></span>Groupe · 1 h 15 ou 1 h 30</li>
               <li><span class="slot-swatch free" aria-hidden="true"></span>Libre</li>
             </ul>
             <span class="slots-hint">Salle unique · 11:30–14:00 et 16:30–20:00 · cliquez sur un créneau libre pour l’allouer</span>
@@ -5099,7 +5103,7 @@ const app = createApp({
                     :key="day.name + cell.time"
                     type="button"
                     :class="['agenda-free', { selected: slotsSelection && slotsSelection.day === day.name && slotsSelection.time === cell.time }]"
-                    :style="{ gridRow: cell.row + ' / span 2', gridColumn: dayIndex + 2 }"
+                    :style="{ gridRow: cell.row, gridColumn: dayIndex + 2 }"
                     :aria-label="'Créneau libre ' + day.name + ' ' + cell.time"
                     @click="selectFreeSlot(day.name, cell.time)"
                   >
@@ -5156,7 +5160,7 @@ const app = createApp({
                   <li v-for="band in unplacedBands" :key="band.id">
                     <span>
                       <strong>{{ band.name }}</strong>
-                      <small>{{ band.type === 'workshop' ? 'Atelier' : 'Groupe' }} · {{ durationLabel(durationMinutes(state.settings, band.type === 'workshop' ? 'workshop' : 'group')) }}</small>
+                      <small>{{ band.type === 'workshop' ? 'Atelier' : 'Groupe' }} · {{ durationLabel(durationMinutes(state.settings, band.type === 'workshop' ? 'workshop' : 'group', band.durationMinutes)) }}</small>
                     </span>
                     <button v-if="canAny(['GROUPS_READ', 'GROUPS_WRITE'])" type="button" class="link-button" @click="openBandInGroups(band.id)">Ouvrir</button>
                   </li>
@@ -5395,8 +5399,14 @@ const app = createApp({
                       <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
                     </select>
                   </label>
+                  <label v-if="groupForm.type !== 'workshop'">
+                    Durée
+                    <select v-model.number="groupForm.durationMinutes" :disabled="!can('GROUPS_WRITE')">
+                      <option v-for="minutes in GROUP_DURATIONS" :key="minutes" :value="minutes">{{ durationLabel(minutes) }}</option>
+                    </select>
+                  </label>
                   <label>
-                    Horaire · {{ durationLabel(durationMinutes(state.settings, groupForm.type === 'workshop' ? 'workshop' : 'group')) }}
+                    Horaire · {{ durationLabel(durationMinutes(state.settings, groupForm.type === 'workshop' ? 'workshop' : 'group', groupForm.durationMinutes)) }}
                     <select v-model="groupForm.startTime" :disabled="!can('GROUPS_WRITE')">
                       <option value="">À placer (sans horaire)</option>
                       <option v-for="option in groupStartOptions" :key="option.time" :value="option.time" :disabled="Boolean(option.reason) && option.time !== groupForm.startTime">
@@ -6388,10 +6398,7 @@ const app = createApp({
                 Durée d’un atelier (heures)
                 <input type="number" v-model.number="state.settings.workshopHours" min="0.01" max="24" step="0.05" :disabled="yearStatus !== 'OPEN'" />
               </label>
-              <label>
-                Durée d’un groupe (heures)
-                <input type="number" v-model.number="state.settings.groupHours" min="0.01" max="24" step="0.05" :disabled="yearStatus !== 'OPEN'" />
-              </label>
+
             </div>
           </section>
 

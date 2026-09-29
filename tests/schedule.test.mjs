@@ -14,22 +14,32 @@ import {
   unavailableReason,
 } from "../src/schedule.mjs";
 
-const settings = { individualCourseHours: 0.5, workshopHours: 1.25, groupHours: 1.5 };
+const settings = { individualCourseHours: 0.5, workshopHours: 1.25 };
 const at = (kind, time, minutes, extra = {}) => ({ id: `${kind}-${time}`, kind, weekday: "Mardi", start: timeToMinutes(time), minutes, sharedSlot: false, ...extra });
 
-test("start times follow the 30-minute grid inside both windows, evening until 20:00", () => {
+test("start times follow the 15-minute grid inside both windows, evening until 20:00", () => {
   const times = startTimes();
   assert.equal(times[0], "11:30");
   assert.ok(times.includes("13:30") && !times.includes("14:00") && !times.includes("16:00"));
-  assert.ok(times.includes("19:30") && !times.includes("20:00"));
-  assert.equal(times.length, 5 + 7);
+  assert.ok(times.includes("12:45") && times.includes("19:45") && !times.includes("20:00"));
+  assert.equal(times.length, 10 + 14);
 });
 
-test("durations come from the year settings", () => {
+test("courses and workshops follow the year, each group its own 1h15 or 1h30", () => {
   assert.equal(durationMinutes(settings, "course"), 30);
   assert.equal(durationMinutes(settings, "workshop"), 75);
-  assert.equal(durationMinutes(settings, "group"), 90);
-  assert.equal(durationMinutes({ ...settings, groupHours: 2 }, "group"), 120);
+  assert.equal(durationMinutes(settings, "group", 75), 75);
+  assert.equal(durationMinutes(settings, "group", 90), 90);
+  assert.equal(durationMinutes(settings, "group"), 90, "existing groups default to 1h30");
+  assert.equal(durationMinutes(settings, "group", 60), 90, "only 1h15 or 1h30");
+});
+
+test("two groups of 1h15 fill the midday window back to back", () => {
+  const first = at("group", "11:30", 75);
+  const second = at("group", "12:45", 75, { id: "second" });
+  assert.equal(placementError(second), null);
+  assert.equal(conflicts(second, [first]).length, 0);
+  assert.match(placementError(at("group", "12:45", 90)), /14:00/);
 });
 
 test("placements must end inside their window", () => {
@@ -62,10 +72,11 @@ test("occupations keep active courses and placed bands only", () => {
     bands: [
       { id: "b1", type: "workshop", weekday: "Jeudi", startTime: "18:00" },
       { id: "b2", type: "independent", weekday: "Mardi", startTime: null },
+      { id: "b3", type: "independent", weekday: "Mardi", startTime: "11:30", durationMinutes: 75 },
     ],
     isActiveCourse: (course) => course.active,
   });
-  assert.deepEqual(list.map((item) => [item.id, item.kind, item.minutes]), [["c1", "course", 30], ["b1", "workshop", 75]]);
+  assert.deepEqual(list.map((item) => [item.id, item.kind, item.minutes]), [["c1", "course", 30], ["b1", "workshop", 75], ["b3", "group", 75]]);
 });
 
 test("free time is counted per day and up to the next booking", () => {
