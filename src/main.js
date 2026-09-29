@@ -3,6 +3,18 @@ import qrcode from "./vendor/qrcode-generator.min.mjs";
 import { createSessionTransport } from "./session-transport.mjs";
 import { AvatarCropDialog } from "./avatar-crop-dialog.mjs";
 import { THEME_CHOICES, THEME_STORAGE_KEY, applyThemePreference, normalizeTheme, readThemePreference, saveThemePreference } from "./theme.mjs";
+import {
+  agendaRows,
+  durationLabel,
+  durationMinutes,
+  freeMinutes,
+  freeUntil,
+  minutesToTime,
+  occupations as roomOccupationsOf,
+  startTimes,
+  timeToMinutes,
+  unavailableReason,
+} from "./schedule.mjs";
 
 const API_BASE = "/api";
 const AUTH_SESSION_STORAGE_KEY = "compta-zik-auth-session";
@@ -11,11 +23,8 @@ const DEFAULT_TEACHER_HOURLY_RATE = 54;
 const DEFAULT_GROUP_MEMBERSHIP_FEE = 30;
 const COURSE_DURATION_HOURS = 0.5;
 const WORKSHOP_DURATION_HOURS = 1.25;
+const GROUP_DURATION_HOURS = 1.5;
 const WEEKDAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-const TIME_WINDOWS = [
-  { start: "11:30", end: "14:00" },
-  { start: "16:30", end: "18:00" },
-];
 const FRENCH_DATE = new Intl.DateTimeFormat("fr-FR", {
   weekday: "long",
   day: "numeric",
@@ -45,6 +54,7 @@ const demoState = {
     groupMembershipFee: DEFAULT_GROUP_MEMBERSHIP_FEE,
     individualCourseHours: COURSE_DURATION_HOURS,
     workshopHours: WORKSHOP_DURATION_HOURS,
+    groupHours: GROUP_DURATION_HOURS,
     schoolHolidayWeeks: [8, 9],
     terms: [
       { id: "t1", name: "Trimestre 1", startWeek: 2, endWeek: 14 },
@@ -163,6 +173,7 @@ function normalizeSnapshot(snapshot) {
       groupMembershipFee: settings.groupMembershipFee == null ? null : Number(settings.groupMembershipFee),
       individualCourseHours: Number(settings.individualCourseHours) || COURSE_DURATION_HOURS,
       workshopHours: Number(settings.workshopHours) || WORKSHOP_DURATION_HOURS,
+      groupHours: Number(settings.groupHours) || GROUP_DURATION_HOURS,
       schoolHolidayWeeks: settings.schoolHolidayWeeks || [],
       terms: settings.terms || [],
     },
@@ -249,25 +260,6 @@ function categoryLabel(category) {
 
 function sortByName(items) {
   return [...items].sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`, "fr"));
-}
-
-function timeToMinutes(time) {
-  const [hours, minutes] = time.split(":").map(Number);
-  return (hours * 60) + minutes;
-}
-
-function minutesToTime(minutes) {
-  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
-}
-
-function buildTimeSlots() {
-  return TIME_WINDOWS.flatMap((window) => {
-    const slots = [];
-    for (let minutes = timeToMinutes(window.start); minutes < timeToMinutes(window.end); minutes += 30) {
-      slots.push(minutesToTime(minutes));
-    }
-    return slots;
-  });
 }
 
 function firstDayOfBusinessWeek(year, week) {
@@ -537,6 +529,7 @@ const app = createApp({
       teacherId: "teacher-yann",
       weekday: "Mardi",
       memberIds: [],
+      startTime: "",
     });
     const expenseForm = reactive({
       date: `${state.settings.year}-01-01`,
@@ -598,7 +591,184 @@ const app = createApp({
     const teachersById = computed(() => Object.fromEntries(state.teachers.map((teacher) => [teacher.id, teacher])));
     const coursesById = computed(() => Object.fromEntries(state.individualCourses.map((course) => [course.id, course])));
     const bandsById = computed(() => Object.fromEntries(state.bands.map((band) => [band.id, band])));
-    const timeSlots = computed(() => buildTimeSlots());
+    const timeSlots = computed(() => startTimes());
+
+    // Planning de la salle (écran Créneaux) — règles partagées avec le backend dans schedule.mjs.
+    const AGENDA_ROWS = agendaRows();
+    const agendaTemplateRows = `44px ${AGENDA_ROWS.map((row) => (row.type === "pause" ? "34px" : "22px")).join(" ")}`;
+    const roomOccupations = computed(() => roomOccupationsOf({
+      settings: state.settings,
+      courses: state.individualCourses,
+      bands: state.bands,
+      isActiveCourse,
+    }));
+    const slotsTeacherFilter = ref("");
+    const slotsSelection = ref(null);
+    const slotBandToPlaceId = ref("");
+    const narrowScreenQuery = window.matchMedia("(max-width: 760px)");
+    const isNarrowScreen = ref(narrowScreenQuery.matches);
+    narrowScreenQuery.addEventListener("change", (event) => {
+      isNarrowScreen.value = event.matches;
+    });
+    const todayWeekday = WEEKDAYS[new Date().getDay() - 1] || null;
+    const slotsDay = ref(todayWeekday || WEEKDAYS[0]);
+
+    function agendaRow(minutes) {
+      return AGENDA_ROWS.findIndex((row) => row.type === "slot" && row.minutes === minutes) + 2;
+    }
+
+    function occupationBlock(group, day) {
+      const first = group[0];
+      const end = first.start + first.minutes;
+      const timeLabel = `${minutesToTime(first.start)}–${minutesToTime(end)}`;
+      const teacherIds = group.map((occupation) => occupation.item.teacherId).filter(Boolean);
+      let title;
+      let detail;
+      let chip;
+      if (first.kind === "course") {
+        const musicians = group.map((occupation) => musiciansById.value[occupation.item.musicianId]).filter(Boolean);
+        const teacher = teachersById.value[first.item.teacherId];
+        title = musicians.map(fullName).join(" · ") || "Cours";
+        detail = group.length > 1 ? `Créneau partagé · ${teacher ? fullName(teacher) : ""}` : [first.item.instrument, teacher ? fullName(teacher) : ""].filter(Boolean).join(" · ");
+        chip = "Cours";
+      } else {
+        const teacher = teachersById.value[first.item.teacherId];
+        title = first.item.name;
+        detail = first.kind === "workshop"
+          ? (teacher ? fullName(teacher) : "Atelier")
+          : countLabel(uniqueIds(first.item.memberIds).length, "musicien");
+        chip = first.kind === "workshop" ? "Atelier" : "Groupe";
+      }
+      return {
+        key: `${day}-${first.kind}-${first.start}-${first.id}`,
+        kind: first.kind,
+        row: agendaRow(first.start),
+        span: Math.max(1, Math.ceil(first.minutes / 15)),
+        compact: first.minutes <= 30,
+        timeLabel,
+        title,
+        detail,
+        chip,
+        description: `${chip} · ${day} ${timeLabel} · ${title}${detail ? ` · ${detail}` : ""}`,
+        dimmed: Boolean(slotsTeacherFilter.value) && !teacherIds.includes(slotsTeacherFilter.value),
+      };
+    }
+
+    const agendaDays = computed(() => (isNarrowScreen.value ? [slotsDay.value] : WEEKDAYS).map((day) => {
+      const dayOccupations = roomOccupations.value.filter((occupation) => occupation.weekday === day);
+      const groups = [];
+      [...dayOccupations].sort((left, right) => left.start - right.start).forEach((occupation) => {
+        const shared = occupation.kind === "course" && groups.find((group) => group[0].kind === "course" && group[0].start === occupation.start);
+        if (shared) shared.push(occupation);
+        else groups.push([occupation]);
+      });
+      const freeCells = timeSlots.value
+        .map((time) => timeToMinutes(time))
+        .filter((start) => !dayOccupations.some((occupation) => start < occupation.start + occupation.minutes && occupation.start < start + 30))
+        .map((start) => ({ time: minutesToTime(start), row: agendaRow(start) }));
+      return {
+        name: day,
+        isToday: day === todayWeekday,
+        freeLabel: `${durationLabel(freeMinutes(dayOccupations))} libres`,
+        blocks: groups.map((group) => occupationBlock(group, day)),
+        freeCells,
+      };
+    }));
+
+    const unplacedBands = computed(() => [...state.bands]
+      .filter((band) => !band.weekday || !band.startTime)
+      .sort((left, right) => left.name.localeCompare(right.name, "fr")));
+
+    function bandCandidate(band, weekday, time) {
+      return {
+        id: band.id,
+        kind: band.type === "workshop" ? "workshop" : "group",
+        weekday,
+        start: timeToMinutes(time),
+        minutes: durationMinutes(state.settings, band.type === "workshop" ? "workshop" : "group"),
+        sharedSlot: false,
+      };
+    }
+
+    const slotSelectionInfo = computed(() => {
+      const selection = slotsSelection.value;
+      if (!selection) return null;
+      const dayOccupations = roomOccupations.value.filter((occupation) => occupation.weekday === selection.day);
+      const start = timeToMinutes(selection.time);
+      const until = freeUntil(start, dayOccupations);
+      return { ...selection, until: minutesToTime(until), freeLabel: durationLabel(until - start) };
+    });
+
+    const fittingUnplacedBands = computed(() => {
+      const selection = slotsSelection.value;
+      if (!selection) return [];
+      return unplacedBands.value.filter((band) => !unavailableReason(bandCandidate(band, selection.day, selection.time), roomOccupations.value));
+    });
+
+    function selectFreeSlot(day, time) {
+      slotsSelection.value = { day, time };
+      slotBandToPlaceId.value = fittingUnplacedBands.value[0]?.id || "";
+    }
+
+    function closeSlotSelection() {
+      slotsSelection.value = null;
+    }
+
+    async function placeBand() {
+      const band = state.bands.find((item) => item.id === slotBandToPlaceId.value);
+      const selection = slotsSelection.value;
+      if (!band || !selection || !can("GROUPS_WRITE") || !ensureStructureMutable()) return;
+      const payload = {
+        id: band.id,
+        version: band.version,
+        year: state.settings.year,
+        name: band.name,
+        type: band.type,
+        teacherId: band.type === "workshop" ? band.teacherId : undefined,
+        weekday: selection.day,
+        startTime: selection.time,
+        memberIds: uniqueIds(band.memberIds),
+      };
+      const saved = await requestResource("PUT", `bands/${band.id}`, payload, {
+        successMessage: `${band.name} placé ${selection.day} à ${selection.time}`,
+        errorMessage: "Placement refusé : le groupe reste à placer",
+      });
+      if (!saved) return;
+      Object.assign(band, { ...saved, type: apiBandTypeToUi(saved.type), memberIds: uniqueIds(saved.memberIds) });
+      slotsSelection.value = null;
+    }
+
+    function newCourseAt(day, time) {
+      activeView.value = "people";
+      startNewMusician();
+      Object.assign(musicianForm, { hasIndividualCourse: true, weekday: day, startTime: time });
+      slotsSelection.value = null;
+    }
+
+    function newGroupAt(day, time) {
+      activeView.value = "groups";
+      resetGroupForm();
+      Object.assign(groupForm, { weekday: day, startTime: time });
+      slotsSelection.value = null;
+    }
+
+    function openBandInGroups(bandId) {
+      activeView.value = "groups";
+      selectGroup(bandId);
+    }
+
+    const groupStartOptions = computed(() => {
+      const candidate = { id: selectedGroupId.value || null, type: groupForm.type };
+      const minutes = durationMinutes(state.settings, groupForm.type === "workshop" ? "workshop" : "group");
+      return timeSlots.value.map((time) => {
+        const reason = unavailableReason(bandCandidate(candidate, groupForm.weekday, time), roomOccupations.value);
+        return { time, reason, label: `${time}–${minutesToTime(timeToMinutes(time) + minutes)}${reason ? ` · ${reason}` : ""}` };
+      });
+    });
+
+    const groupStartWarning = computed(() => (
+      groupForm.startTime ? groupStartOptions.value.find((option) => option.time === groupForm.startTime)?.reason || null : null
+    ));
     const passwordRequirements = computed(() => {
       const value = passwordForm.newPassword || "";
       return [
@@ -1223,7 +1393,7 @@ const app = createApp({
         attendance: "Présences",
         account: "Compte utilisateur",
         people: "Musiciens",
-        slots: "Créneaux individuels",
+        slots: "Créneaux",
         groups: "Groupes",
         settings: "Configuration",
         billing: "Facturation",
@@ -1389,28 +1559,6 @@ const app = createApp({
       window.print();
     }
 
-    const scheduleRows = computed(() => {
-      return timeSlots.value.map((slot) => ({
-        slot,
-        days: WEEKDAYS.map((weekday) => {
-          const courses = state.individualCourses.filter((item) => (
-            isActiveCourse(item)
-            && item.weekday === weekday
-            && item.startTime === slot
-          ));
-          return {
-            key: `${weekday}-${slot}`,
-            teachers: courses.map((course) => teachersById.value[course.teacherId]).filter(Boolean),
-            weekday,
-            slot,
-            courses,
-            musicians: courses.map((course) => musiciansById.value[course.musicianId]).filter(Boolean),
-            sharedSlot: courses.some((course) => course.sharedSlot),
-          };
-        }),
-      }));
-    });
-
     function attendanceFor(entityType, entityId, week) {
       return attendanceIndex.value.get(`${selectedTerm.value.id}:${entityType}:${entityId}:${week}`);
     }
@@ -1491,6 +1639,7 @@ const app = createApp({
         groupMembershipFee: Number(state.settings.groupMembershipFee) || 0,
         individualCourseHours: Number(state.settings.individualCourseHours) || COURSE_DURATION_HOURS,
         workshopHours: Number(state.settings.workshopHours) || WORKSHOP_DURATION_HOURS,
+        groupHours: Number(state.settings.groupHours) || GROUP_DURATION_HOURS,
         schoolHolidayWeeks: selectedHolidayWeeks.value,
         terms: state.settings.terms.map((term, index) => ({
           id: term.id,
@@ -1502,7 +1651,7 @@ const app = createApp({
       };
 
       if (!can("CONFIG_FINANCIALS")) {
-        for (const field of ["teacherHourlyRate", "groupMembershipFee", "individualCourseHours", "workshopHours"]) delete payload[field];
+        for (const field of ["teacherHourlyRate", "groupMembershipFee", "individualCourseHours", "workshopHours", "groupHours"]) delete payload[field];
       }
       if (!can("CONFIG_TERMS")) delete payload.terms;
       if (!can("CONFIG_HOLIDAYS")) delete payload.schoolHolidayWeeks;
@@ -1744,31 +1893,23 @@ const app = createApp({
       musicianBandToAddId.value = musicianAvailableBands.value[0]?.id || "";
     }
 
+    function courseSlotReason(slot) {
+      return unavailableReason({
+        id: musicianForm.courseId,
+        kind: "course",
+        weekday: musicianForm.weekday,
+        start: timeToMinutes(slot),
+        minutes: durationMinutes(state.settings, "course"),
+        sharedSlot: musicianForm.sharedSlot,
+      }, roomOccupations.value);
+    }
+
     function slotTakenByOtherMusician() {
-      if (!musicianForm.hasIndividualCourse) return false;
-      if (musicianForm.sharedSlot) {
-        return false;
-      }
-      return state.individualCourses.some((course) => (
-        course.id !== musicianForm.courseId
-        && isActiveCourse(course)
-        && course.weekday === musicianForm.weekday
-        && course.startTime === musicianForm.startTime
-        && !course.sharedSlot
-      ));
+      return musicianForm.hasIndividualCourse && Boolean(courseSlotReason(musicianForm.startTime));
     }
 
     function isSlotDisabled(slot) {
-      if (musicianForm.sharedSlot) {
-        return false;
-      }
-      return state.individualCourses.some((course) => (
-        course.id !== musicianForm.courseId
-        && isActiveCourse(course)
-        && course.weekday === musicianForm.weekday
-        && course.startTime === slot
-        && !course.sharedSlot
-      ));
+      return Boolean(courseSlotReason(slot));
     }
 
     async function syncMusicianCourse(musicianId) {
@@ -1937,6 +2078,7 @@ const app = createApp({
         type: band.type,
         teacherId: band.teacherId || state.teachers[0]?.id || "",
         weekday: band.weekday || "Mardi",
+        startTime: band.startTime || "",
         memberIds: uniqueIds(band.memberIds),
       });
       groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
@@ -1949,6 +2091,7 @@ const app = createApp({
         type: "independent",
         teacherId: state.teachers[0]?.id || "",
         weekday: "Mardi",
+        startTime: "",
         memberIds: [],
       });
       groupMemberToAddId.value = availableGroupMembers.value[0]?.id || "";
@@ -1971,6 +2114,10 @@ const app = createApp({
       if (!can("GROUPS_WRITE")) return;
       if (!ensureStructureMutable()) return;
       if (!groupForm.name.trim()) return;
+      if (groupStartWarning.value) {
+        showToast(`Horaire impossible : ${groupStartWarning.value}`, "warning");
+        return;
+      }
       const existing = selectedGroupId.value ? state.bands.find((band) => band.id === selectedGroupId.value) : null;
       const teacherId = teachersById.value[groupForm.teacherId]
         ? groupForm.teacherId
@@ -1980,7 +2127,8 @@ const app = createApp({
         name: groupForm.name.trim(),
         type: groupForm.type,
         teacherId: groupForm.type === "workshop" ? teacherId : undefined,
-        weekday: groupForm.type === "workshop" ? groupForm.weekday : undefined,
+        weekday: groupForm.weekday,
+        startTime: groupForm.startTime || null,
         memberIds: uniqueIds(groupForm.memberIds),
       };
       const savedBand = await requestResource(
@@ -2419,6 +2567,8 @@ const app = createApp({
     }
 
     function openNavView(view) {
+      // Referme aussi le menu « Plus » quand on choisit l'écran déjà affiché.
+      mobileMenuOpen.value = false;
       if (view === "billing") openBilling();
       else activeView.value = view;
     }
@@ -3886,7 +4036,28 @@ const app = createApp({
       activeMusicians,
       archivedMusicians,
       timeSlots,
-      scheduleRows,
+      AGENDA_ROWS,
+      agendaTemplateRows,
+      agendaDays,
+      slotsTeacherFilter,
+      slotsSelection,
+      slotSelectionInfo,
+      slotBandToPlaceId,
+      slotsDay,
+      isNarrowScreen,
+      unplacedBands,
+      fittingUnplacedBands,
+      selectFreeSlot,
+      closeSlotSelection,
+      placeBand,
+      newCourseAt,
+      newGroupAt,
+      openBandInGroups,
+      groupStartOptions,
+      groupStartWarning,
+      courseSlotReason,
+      durationLabel,
+      durationMinutes,
       musicianRows,
       activeMusicianCountLabel,
       billableStudentRows,
@@ -4872,37 +5043,128 @@ const app = createApp({
           </section>
         </section>
 
-        <section v-if="activeView === 'slots' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="view-stack">
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Planning hebdomadaire</h2>
-                <span>Demi-heures entre 11h30-14h00 et 16h30-18h00</span>
+        <section v-if="activeView === 'slots' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE'])" class="view-stack slots-view">
+          <div class="slots-toolbar">
+            <label class="slots-teacher-filter">
+              <span class="visually-hidden">Professeur</span>
+              <select v-model="slotsTeacherFilter" aria-label="Mettre en avant les réservations d’un professeur">
+                <option value="">Tous les professeurs</option>
+                <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
+              </select>
+            </label>
+            <ul class="slots-legend" aria-label="Légende du planning">
+              <li><span class="slot-swatch course" aria-hidden="true"></span>Cours · {{ durationLabel(durationMinutes(state.settings, 'course')) }}</li>
+              <li><span class="slot-swatch workshop" aria-hidden="true"></span>Atelier · {{ durationLabel(durationMinutes(state.settings, 'workshop')) }}</li>
+              <li><span class="slot-swatch group" aria-hidden="true"></span>Groupe · {{ durationLabel(durationMinutes(state.settings, 'group')) }}</li>
+              <li><span class="slot-swatch free" aria-hidden="true"></span>Libre</li>
+            </ul>
+            <span class="slots-hint">Salle unique · 11:30–14:00 et 16:30–20:00 · cliquez sur un créneau libre pour l’allouer</span>
+          </div>
+
+          <div v-if="isNarrowScreen" class="segmented slots-days" role="group" aria-label="Jour affiché">
+            <button
+              v-for="day in WEEKDAYS"
+              :key="day"
+              type="button"
+              :aria-pressed="slotsDay === day ? 'true' : 'false'"
+              @click="slotsDay = day"
+            >{{ day.slice(0, 3) }}</button>
+          </div>
+
+          <div class="slots-layout">
+            <section class="agenda-card" aria-label="Planning hebdomadaire de la salle">
+              <div class="agenda" :style="{ gridTemplateColumns: '56px repeat(' + agendaDays.length + ', minmax(0, 1fr))', gridTemplateRows: agendaTemplateRows }">
+                <div
+                  v-for="(day, index) in agendaDays"
+                  :key="'head-' + day.name"
+                  :class="['agenda-day-head', { today: day.isToday }]"
+                  :style="{ gridRow: 1, gridColumn: index + 2 }"
+                >
+                  <strong>{{ day.name }}</strong>
+                  <span>{{ day.freeLabel }}</span>
+                </div>
+                <template v-for="(row, index) in AGENDA_ROWS" :key="'row-' + index">
+                  <div v-if="row.type === 'pause'" class="agenda-pause" :style="{ gridRow: index + 2, gridColumn: '1 / -1' }">
+                    Pause · {{ row.from }} → {{ row.to }}
+                  </div>
+                  <template v-else>
+                    <span v-if="row.mark !== 'quarter'" :class="['agenda-time', row.mark]" :style="{ gridRow: index + 2, gridColumn: 1 }">{{ row.time }}</span>
+                    <div :class="['agenda-line', row.mark, { last: index === AGENDA_ROWS.length - 1 }]" :style="{ gridRow: index + 2, gridColumn: '2 / -1' }"></div>
+                  </template>
+                </template>
+                <span class="agenda-time hour end" :style="{ gridRow: AGENDA_ROWS.length + 1, gridColumn: 1 }">20:00</span>
+                <template v-for="(day, dayIndex) in agendaDays" :key="'day-' + day.name">
+                  <button
+                    v-for="cell in day.freeCells"
+                    :key="day.name + cell.time"
+                    type="button"
+                    :class="['agenda-free', { selected: slotsSelection && slotsSelection.day === day.name && slotsSelection.time === cell.time }]"
+                    :style="{ gridRow: cell.row + ' / span 2', gridColumn: dayIndex + 2 }"
+                    :aria-label="'Créneau libre ' + day.name + ' ' + cell.time"
+                    @click="selectFreeSlot(day.name, cell.time)"
+                  >
+                    <span aria-hidden="true">+ {{ cell.time }}</span>
+                  </button>
+                  <article
+                    v-for="block in day.blocks"
+                    :key="block.key"
+                    :class="['agenda-block', block.kind, { compact: block.compact, dimmed: block.dimmed }]"
+                    :style="{ gridRow: block.row + ' / span ' + block.span, gridColumn: dayIndex + 2 }"
+                    :title="block.description"
+                    :aria-label="block.description"
+                  >
+                    <strong>{{ block.title }}</strong>
+                    <span class="agenda-block-meta"><span class="agenda-block-time">{{ block.timeLabel }}</span><template v-if="block.detail"> · {{ block.detail }}</template></span>
+                    <em v-if="!block.compact" class="agenda-chip">{{ block.chip }}</em>
+                  </article>
+                </template>
               </div>
-            </div>
-            <div class="slot-planning">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Heure</th>
-                    <th v-for="day in WEEKDAYS" :key="day">{{ day }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in scheduleRows" :key="row.slot">
-                    <th scope="row">{{ row.slot }}</th>
-                    <td v-for="slot in row.days" :key="slot.key" :class="{ occupied: slot.courses.length }">
-                      <template v-if="slot.courses.length">
-                        <strong>{{ slot.musicians.map(fullName).join(', ') }}</strong>
-                        <small>{{ slot.teachers.map(fullName).join(', ') }}{{ slot.sharedSlot ? ' · partagé' : '' }}</small>
-                      </template>
-                      <span v-else class="slot-free">Libre</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
+            </section>
+
+            <aside class="slots-side">
+              <section v-if="slotSelectionInfo" class="panel slot-allocation" aria-live="polite">
+                <span class="eyebrow">Créneau libre</span>
+                <h2>{{ slotSelectionInfo.day }} · {{ slotSelectionInfo.time }}</h2>
+                <p class="muted">Libre jusqu’à {{ slotSelectionInfo.until }} · {{ slotSelectionInfo.freeLabel }}</p>
+                <div v-if="can('GROUPS_WRITE') && fittingUnplacedBands.length" class="slot-place">
+                  <label>
+                    Placer un groupe
+                    <select v-model="slotBandToPlaceId">
+                      <option v-for="band in fittingUnplacedBands" :key="band.id" :value="band.id">
+                        {{ band.name }} · {{ band.type === 'workshop' ? 'Atelier' : 'Groupe' }}
+                      </option>
+                    </select>
+                  </label>
+                  <button type="button" class="primary-button" :disabled="!slotBandToPlaceId" @click="placeBand">Placer ici</button>
+                </div>
+                <p v-else-if="unplacedBands.length" class="muted">Aucun groupe à placer ne tient dans ce créneau.</p>
+                <div class="slot-actions">
+                  <button v-if="can('MUSICIENS_WRITE')" type="button" class="ghost-button" @click="newCourseAt(slotSelectionInfo.day, slotSelectionInfo.time)">Nouveau cours ici</button>
+                  <button v-if="can('GROUPS_WRITE')" type="button" class="ghost-button" @click="newGroupAt(slotSelectionInfo.day, slotSelectionInfo.time)">Nouveau groupe ici</button>
+                  <button type="button" class="link-button" @click="closeSlotSelection">Fermer</button>
+                </div>
+              </section>
+
+              <section class="panel slots-unplaced">
+                <div class="panel-head">
+                  <div>
+                    <h2>À placer</h2>
+                    <span>{{ unplacedBands.length ? countLabel(unplacedBands.length, 'groupe') + ' sans horaire' : 'Tous les groupes ont un horaire' }}</span>
+                  </div>
+                </div>
+                <ul v-if="unplacedBands.length" class="unplaced-list">
+                  <li v-for="band in unplacedBands" :key="band.id">
+                    <span>
+                      <strong>{{ band.name }}</strong>
+                      <small>{{ band.type === 'workshop' ? 'Atelier' : 'Groupe' }} · {{ durationLabel(durationMinutes(state.settings, band.type === 'workshop' ? 'workshop' : 'group')) }}</small>
+                    </span>
+                    <button v-if="canAny(['GROUPS_READ', 'GROUPS_WRITE'])" type="button" class="link-button" @click="openBandInGroups(band.id)">Ouvrir</button>
+                  </li>
+                </ul>
+                <p v-else class="muted">Choisissez un créneau libre dans le planning pour y créer un cours ou un groupe.</p>
+              </section>
+            </aside>
+          </div>
         </section>
 
         <section v-if="activeView === 'people' && !mustChangePassword && canAny(['MUSICIENS_READ', 'MUSICIENS_WRITE', 'MUSICIENS_ARCHIVED'])" class="view-stack">
@@ -4986,8 +5248,8 @@ const app = createApp({
                   <label>
                     Créneau
                     <select v-model="musicianForm.startTime" :disabled="!musicianForm.hasIndividualCourse">
-                      <option v-for="slot in timeSlots" :key="slot" :value="slot" :disabled="isSlotDisabled(slot)">
-                        {{ slot }}{{ isSlotDisabled(slot) ? ' - occupé' : '' }}
+                      <option v-for="slot in timeSlots" :key="slot" :value="slot" :disabled="isSlotDisabled(slot) && slot !== musicianForm.startTime">
+                        {{ slot }}{{ isSlotDisabled(slot) ? ' · ' + courseSlotReason(slot) : '' }}
                       </option>
                     </select>
                   </label>
@@ -4996,7 +5258,7 @@ const app = createApp({
                     Créneau partagé
                   </label>
                 </div>
-                <p v-if="slotTakenByOtherMusician()" class="form-warning">Ce créneau est déjà pris. Cochez créneau partagé si plusieurs élèves suivent ce cours.</p>
+                <p v-if="slotTakenByOtherMusician()" class="form-warning">Ce créneau n’est pas disponible : {{ courseSlotReason(musicianForm.startTime) }}. Un créneau partagé n’est possible qu’entre deux cours qui commencent à la même heure.</p>
               </div>
             </div>
 
@@ -5127,13 +5389,23 @@ const app = createApp({
                       <option v-for="teacher in state.teachers" :key="teacher.id" :value="teacher.id">{{ fullName(teacher) }}</option>
                     </select>
                   </label>
-                  <label v-if="groupForm.type === 'workshop'">
+                  <label>
                     Jour
                     <select v-model="groupForm.weekday" :disabled="!can('GROUPS_WRITE')">
                       <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ day }}</option>
                     </select>
                   </label>
+                  <label>
+                    Horaire · {{ durationLabel(durationMinutes(state.settings, groupForm.type === 'workshop' ? 'workshop' : 'group')) }}
+                    <select v-model="groupForm.startTime" :disabled="!can('GROUPS_WRITE')">
+                      <option value="">À placer (sans horaire)</option>
+                      <option v-for="option in groupStartOptions" :key="option.time" :value="option.time" :disabled="Boolean(option.reason) && option.time !== groupForm.startTime">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </label>
                 </div>
+                <p v-if="groupStartWarning" class="form-warning">Cet horaire n’est pas disponible : {{ groupStartWarning }}. Choisissez-en un autre ou laissez le groupe à placer.</p>
 
                 <div class="panel-head inner-head">
                   <h3>Membres</h3>
@@ -6115,6 +6387,10 @@ const app = createApp({
               <label>
                 Durée d’un atelier (heures)
                 <input type="number" v-model.number="state.settings.workshopHours" min="0.01" max="24" step="0.05" :disabled="yearStatus !== 'OPEN'" />
+              </label>
+              <label>
+                Durée d’un groupe (heures)
+                <input type="number" v-model.number="state.settings.groupHours" min="0.01" max="24" step="0.05" :disabled="yearStatus !== 'OPEN'" />
               </label>
             </div>
           </section>

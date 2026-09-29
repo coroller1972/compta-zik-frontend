@@ -15,7 +15,8 @@ SPA Vue 3 sans étape de build pour la comptabilité d'une activité musicale (p
 - `src/styles.css` : tous les styles.
 - `src/vendor/` : dépendances vendorisées (Vue, polices, QR code). **Aucun CDN** : toute nouvelle ressource est copiée ici avec sa licence.
 - Icônes : sprite SVG `<symbol id="icon-…">` en tête du gabarit de `src/main.js` (voir `partition.md` §5).
-- `src/session-transport.mjs`, `src/avatar-crop*.mjs`, `src/theme.mjs` : modules testés dans `tests/`.
+- `src/session-transport.mjs`, `src/avatar-crop*.mjs`, `src/theme.mjs`, `src/schedule.mjs` : modules testés dans `tests/`.
+- `src/schedule.mjs` : règles du planning de la salle (plages, grille, durées, chevauchements) ; elles doivent rester identiques à `SlotRules` du backend.
 - `src/theme-init.js` : script classique en tête de `index.html` qui applique le thème mémorisé avant le rendu (même clé que `theme.mjs`).
 
 ## Règles
