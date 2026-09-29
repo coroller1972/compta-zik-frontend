@@ -4835,7 +4835,7 @@ const app = createApp({
                   <strong>{{ selectedTerm.name }} · {{ state.settings.year }}</strong>
                 </div>
                 <div class="signature-table-wrap">
-                  <table class="signature-table">
+                  <table class="signature-table" :style="{ '--weeks': weeks.length }">
                     <thead>
                       <tr>
                         <th class="signature-week-col">Semaine</th>

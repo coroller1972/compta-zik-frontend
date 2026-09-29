@@ -2336,13 +2336,11 @@ td small {
     min-height: 0;
   }
 
-  .content {
-    padding: 0;
-  }
-
+  /* !important : les règles d'écran de .content et .panel sont plus loin dans le fichier. */
+  .content,
   .panel,
   .signature-page {
-    padding: 0;
+    padding: 0 !important;
   }
 
   .signature-page {
@@ -2374,12 +2372,19 @@ td small {
   .signature-table {
     min-width: 0;
     width: 100%;
-    font-size: 9px;
   }
 
-  .signature-table th,
+  /* Tailles d'impression : sélecteurs au moins aussi précis que ceux de l'écran, sinon ces derniers l'emportent. */
+  .signature-table thead th,
+  .signature-table tbody th,
   .signature-table td {
-    padding: 3px 4px;
+    padding: 2px 5px;
+    font-size: 9px;
+    line-height: 1.25;
+  }
+
+  .signature-table td {
+    background: #fff !important;
   }
 
   .signature-head {
@@ -2387,7 +2392,7 @@ td small {
   }
 
   .signature-head h3 {
-    font-size: 12px;
+    font-size: 16px;
   }
 
   .signature-head span,
@@ -2399,6 +2404,10 @@ td small {
     background: var(--card-alt) !important;
   }
 
+  .signature-table thead strong {
+    font-size: 9px;
+  }
+
   .signature-table thead span,
   .signature-table thead small,
   .signature-table tbody th small,
@@ -2406,13 +2415,27 @@ td small {
     font-size: 8px;
   }
 
-  .signature-week-col,
-  .signature-table tbody th {
-    width: 26mm;
+  .signature-table thead .signature-kind {
+    margin-top: 1px;
+    padding: 0 5px;
   }
 
-  .signature-cell {
-    height: 9mm;
+  .signature-table .signature-week-col,
+  .signature-table tbody th {
+    width: 34mm;
+  }
+
+  .signature-table thead .signature-week-col {
+    font-size: 8px;
+  }
+
+  .signature-table tbody th span {
+    white-space: nowrap;
+  }
+
+  /* Une feuille par page A4 paysage : ~160 mm de lignes répartis sur les semaines du trimestre (--weeks). */
+  .signature-table .signature-cell {
+    height: min(11mm, calc(160mm / var(--weeks, 16)));
   }
 
   .signature-table .holiday,
