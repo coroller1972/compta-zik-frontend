@@ -241,6 +241,13 @@ Même principe pour les deux écrans : une barre d'outils (recherche en pilule, 
 - Enregistrement explicite : les modifications d'une fiche (membres compris) attendent le bouton « Enregistrer » ; une pastille laiton « Modifications non enregistrées » le signale, et changer de fiche demande confirmation.
 - Fiche musicien sur deux colonnes sous 1100 px (Groupes et Atelier en dessous), une seule sous 760 px ; sous 980 px, la fiche de groupe passe sous la liste ; sous 760 px, les lignes de musicien s'empilent (nom et montant, cours, pastilles).
 
+### Dépenses
+
+- Tuiles : « Total {année} » en variante foncée (`--petrol-deep`, comme la subvention du tableau de bord) avec le nombre de dépenses, puis **seulement les trois catégories les plus lourdes** : montant, nombre de dépenses, part du total en % et barre de part (`--petrol` sur `--track`). Sous 760 px, le total occupe la largeur et le top 3 passe côte à côte en format réduit (libellé sur deux lignes réservées pour aligner les montants).
+- Barre d'outils : recherche (libellé, notes, catégorie), filtre « Toutes les catégories », bouton « Nouvelle dépense » ; année clôturée : mention « dépenses verrouillées » à la place du bouton, lignes non modifiables.
+- Liste groupée par mois (en-tête mono `--card-alt` : mois en capitales + nombre de dépenses) ; ligne : jour (« mar. 12 », date complète au survol), libellé et notes, catégorie en pastille `--rail`, montant en mono.
+- Saisie comme la fiche musicien : un clic sur la ligne déplie le formulaire dessous (date, libellé, catégorie, montant, notes), un second clic le replie ; une nouvelle dépense s'ouvre en tête de liste, datée du jour pendant l'année en cours. La suppression se fait depuis le formulaire, après confirmation.
+
 ### Émargement mobile (390 px)
 
 Saisie rapide des présences d'une journée :
