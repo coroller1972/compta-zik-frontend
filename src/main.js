@@ -244,6 +244,23 @@ function automaticTermForYear(terms, year, now = new Date()) {
     || orderedTerms[0];
 }
 
+const MONTH_LABEL = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" });
+
+/** « 2026-09 » → « Septembre 2026 ». */
+function monthLabel(yearMonth) {
+  const [year, month] = String(yearMonth).split("-").map(Number);
+  if (!year || !month) return "Sans date";
+  const label = MONTH_LABEL.format(new Date(year, month - 1, 1));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+const DAY_LABEL = new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "numeric" });
+
+/** « mar. 12 » : le mois est donné par l'en-tête de groupe. */
+function dayLabel(value) {
+  return value ? DAY_LABEL.format(new Date(`${value}T00:00:00`)) : "";
+}
+
 function formatDate(value) {
   if (!value) return "";
   return SHORT_DATE.format(new Date(`${value}T00:00:00`));
@@ -452,6 +469,10 @@ const app = createApp({
     const groupListSearch = ref("");
     const selectedGroupId = ref("band-1");
     const musicianFilter = ref("all");
+    const expenseSearch = ref("");
+    const expenseCategoryFilter = ref("");
+    const expenseFormOpen = ref(false);
+    const expenseFormSnapshot = ref("");
     // Formulaires tels qu'ouverts : sert à signaler les modifications non enregistrées.
     const musicianFormSnapshot = ref("");
     const groupFormSnapshot = ref("");
@@ -1412,12 +1433,52 @@ const app = createApp({
       String(b.date).localeCompare(String(a.date)) || a.label.localeCompare(b.label, "fr")
     )));
 
-    const expenseTotalsByCategory = computed(() => EXPENSE_CATEGORIES.map((category) => ({
-      ...category,
-      total: state.expenses
-        .filter((expense) => expense.category === category.value)
-        .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0),
-    })).filter((category) => category.total > 0));
+    const expenseTotalsByCategory = computed(() => EXPENSE_CATEGORIES.map((category) => {
+      const expenses = state.expenses.filter((expense) => expense.category === category.value);
+      return {
+        ...category,
+        count: expenses.length,
+        total: expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0),
+      };
+    }).filter((category) => category.total > 0));
+
+    /** Les trois catégories les plus lourdes, avec leur part du total (largeur de la barre). */
+    const expenseTopCategories = computed(() => [...expenseTotalsByCategory.value]
+      .sort((left, right) => right.total - left.total)
+      .slice(0, 3)
+      .map((category) => ({
+        ...category,
+        share: totals.value.annualExpenses > 0 ? Math.round((category.total / totals.value.annualExpenses) * 100) : 0,
+      })));
+
+    const filteredExpenseRows = computed(() => {
+      const q = expenseSearch.value.trim().toLowerCase();
+      return expenseRows.value.filter((expense) => (
+        (!expenseCategoryFilter.value || expense.category === expenseCategoryFilter.value)
+        && (!q || `${expense.label} ${expense.notes || ""} ${categoryLabel(expense.category)}`.toLowerCase().includes(q))
+      ));
+    });
+
+    // Lignes groupées par mois ; le formulaire s'ouvre sous la dépense modifiée, ou en tête pour une nouvelle.
+    const expenseListItems = computed(() => {
+      const items = [];
+      let month = "";
+      filteredExpenseRows.value.forEach((expense) => {
+        const key = String(expense.date).slice(0, 7);
+        if (key !== month) {
+          month = key;
+          const count = filteredExpenseRows.value.filter((item) => String(item.date).startsWith(key)).length;
+          items.push({ kind: "month", key: `month-${key}`, label: monthLabel(key), count });
+        }
+        items.push({ kind: "row", key: expense.id, expense });
+      });
+      if (!expenseFormOpen.value || !can("EXPENSES_WRITE")) return items;
+      const form = { kind: "form", key: "expense-form" };
+      const index = editingExpenseId.value ? items.findIndex((item) => item.key === editingExpenseId.value) : -1;
+      return index < 0 ? [form, ...items] : [...items.slice(0, index + 1), form, ...items.slice(index + 1)];
+    });
+
+    const expenseFormDirty = computed(() => expenseFormOpen.value && JSON.stringify(expenseForm) !== expenseFormSnapshot.value);
 
     const isAuthenticated = computed(() => Boolean(authSession.value?.accessToken));
     const isAdministrator = computed(() => currentUser.value?.roles?.includes("ADMINISTRATOR") === true);
@@ -1885,13 +1946,17 @@ const app = createApp({
       return true;
     }
 
-    // Fait défiler la page seulement si la ligne ouverte ou le bas de sa fiche sort de l'écran.
     function revealMusicianSheet(musicianId) {
+      revealListItem("musician-editor-panel", musicianId && `musician-row-${musicianId}`);
+    }
+
+    // Fait défiler la page seulement si la ligne ouverte ou le bas de son formulaire sort de l'écran.
+    function revealListItem(panelId, rowId) {
       nextTick(() => {
-        const sheet = document.getElementById("musician-editor-panel");
-        const anchor = (musicianId && document.getElementById(`musician-row-${musicianId}`)) || sheet;
-        if (!sheet || !anchor) return;
-        if (anchor.getBoundingClientRect().top < 0 || sheet.getBoundingClientRect().bottom > window.innerHeight) {
+        const panel = document.getElementById(panelId);
+        const anchor = (rowId && document.getElementById(rowId)) || panel;
+        if (!panel || !anchor) return;
+        if (anchor.getBoundingClientRect().top < 0 || panel.getBoundingClientRect().bottom > window.innerHeight) {
           anchor.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       });
@@ -2329,20 +2394,44 @@ const app = createApp({
       cancelGroupEdit();
     }
 
+    /** Aujourd'hui si l'on saisit l'année en cours, sinon le 1er janvier de l'année affichée. */
+    function defaultExpenseDate() {
+      const today = new Date();
+      const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      return today.getFullYear() === Number(state.settings.year) ? iso : `${state.settings.year}-01-01`;
+    }
+
     function resetExpenseForm() {
       editingExpenseId.value = null;
+      expenseFormOpen.value = false;
       Object.assign(expenseForm, {
-        date: `${state.settings.year}-01-01`,
-        category: "EQUIPMENT",
+        date: defaultExpenseDate(),
+        category: expenseCategoryFilter.value || "EQUIPMENT",
         label: "",
         amount: 0,
         notes: "",
       });
+      expenseFormSnapshot.value = JSON.stringify(expenseForm);
+    }
+
+    function startNewExpense() {
+      if (!can("EXPENSES_WRITE")) return;
+      if (!confirmDiscardChanges(expenseFormDirty.value)) return;
+      resetExpenseForm();
+      expenseFormOpen.value = true;
+      revealListItem("expense-form", null);
     }
 
     function editExpense(expense) {
       if (!can("EXPENSES_WRITE")) return;
+      // Un second clic sur la ligne ouverte replie le formulaire, sauf modifications en cours.
+      if (expenseFormOpen.value && editingExpenseId.value === expense.id) {
+        if (!expenseFormDirty.value) resetExpenseForm();
+        return;
+      }
+      if (!confirmDiscardChanges(expenseFormDirty.value)) return;
       editingExpenseId.value = expense.id;
+      expenseFormOpen.value = true;
       Object.assign(expenseForm, {
         date: expense.date,
         category: expense.category,
@@ -2350,6 +2439,8 @@ const app = createApp({
         amount: Number(expense.amount) || 0,
         notes: expense.notes || "",
       });
+      expenseFormSnapshot.value = JSON.stringify(expenseForm);
+      revealListItem("expense-form", `expense-row-${expense.id}`);
     }
 
     async function saveExpense() {
@@ -2390,6 +2481,8 @@ const app = createApp({
     async function deleteExpense(expenseId) {
       if (!can("EXPENSES_DELETE")) return;
       if (!ensureYearNotClosed("Les dépenses sont verrouillées")) return;
+      const expense = state.expenses.find((item) => item.id === expenseId);
+      if (!window.confirm(`Supprimer définitivement la dépense « ${expense?.label || ""} » ?`)) return;
       const deleted = await requestResource("DELETE", `expenses/${expenseId}`, null, {
         successMessage: "Dépense supprimée",
         errorMessage: "Dépense non supprimée côté backend",
@@ -4256,6 +4349,14 @@ const app = createApp({
       teacherRows,
       expenseRows,
       expenseTotalsByCategory,
+      expenseTopCategories,
+      expenseSearch,
+      expenseCategoryFilter,
+      expenseFormOpen,
+      expenseFormDirty,
+      expenseListItems,
+      filteredExpenseRows,
+      startNewExpense,
       teacherWeeklyRows,
       teacherBillingSections,
       signatureSheetSections,
@@ -4265,6 +4366,7 @@ const app = createApp({
       money,
       hoursLabel,
       formatDate,
+      dayLabel,
       formatDateTime,
       categoryLabel,
       fullName,
@@ -5406,7 +5508,7 @@ const app = createApp({
                     <span class="musician-due num">{{ billingMoney(item.row.totalDue) }}</span>
                   </component>
                 </li>
-                <li v-else id="musician-editor-panel" class="musician-sheet">
+                <li v-else id="musician-editor-panel" class="inline-sheet">
                   <section :aria-label="editingMusicianId ? 'Fiche de ' + fullName(musicianForm) : 'Nouveau musicien'">
                     <div v-if="!editingMusicianId" class="musician-sheet-title">
                       <span class="person-avatar" aria-hidden="true">{{ personInitials(musicianForm) }}</span>
@@ -5678,99 +5780,113 @@ const app = createApp({
           </div>
         </section>
 
-        <section v-if="activeView === 'expenses' && !mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" class="view-stack">
+        <section v-if="activeView === 'expenses' && !mustChangePassword && canAny(['EXPENSES_READ', 'EXPENSES_WRITE', 'EXPENSES_DELETE'])" class="view-stack repertoire-view">
           <section class="kpi-tiles expense-kpi-tiles" aria-label="Totaux des dépenses">
-            <article class="kpi-tile">
+            <article class="kpi-tile emphasis">
               <div class="kpi-tile-copy">
-                <span>Total annuel</span>
+                <span>Total {{ state.settings.year }}</span>
                 <strong>{{ money(totals.annualExpenses) }}</strong>
-                <small>{{ state.settings.year }}</small>
+                <small>{{ countLabel(state.expenses.length, 'dépense') }}</small>
               </div>
             </article>
-            <article v-for="category in expenseTotalsByCategory" :key="category.value" class="kpi-tile">
+            <article v-for="category in expenseTopCategories" :key="category.value" class="kpi-tile expense-category-tile">
               <div class="kpi-tile-copy">
                 <span>{{ category.label }}</span>
                 <strong>{{ money(category.total) }}</strong>
-                <small>Dépenses saisies</small>
+                <small>{{ countLabel(category.count, 'dépense') }} · {{ category.share }}&nbsp;%</small>
               </div>
+              <span class="expense-share" aria-hidden="true"><span :style="{ width: category.share + '%' }"></span></span>
             </article>
           </section>
 
-          <section v-if="can('EXPENSES_WRITE')" class="panel">
-            <div class="panel-head">
-              <h2>{{ editingExpenseId ? 'Modifier une dépense' : 'Ajouter une dépense' }}</h2>
-              <span>{{ state.expenses.length }} dépenses</span>
-            </div>
-            <div class="expense-editor">
-              <label>
-                Date
-                <input type="date" v-model="expenseForm.date" />
-              </label>
-              <label>
-                Catégorie
-                <select v-model="expenseForm.category">
-                  <option v-for="category in EXPENSE_CATEGORIES" :key="category.value" :value="category.value">{{ category.label }}</option>
-                </select>
-              </label>
-              <label>
-                Libellé
-                <input v-model="expenseForm.label" placeholder="Achat, réparation, location..." />
-              </label>
-              <label>
-                Montant
-                <input type="number" v-model.number="expenseForm.amount" min="0" step="0.01" />
-              </label>
-              <label class="expense-notes">
-                Notes
-                <input v-model="expenseForm.notes" placeholder="Optionnel" />
-              </label>
-            </div>
-            <div class="form-actions">
-              <button class="primary-button" @click="saveExpense">{{ editingExpenseId ? 'Enregistrer' : 'Ajouter' }}</button>
-              <button class="ghost-button" @click="resetExpenseForm">Réinitialiser</button>
-            </div>
-          </section>
+          <div class="repertoire-toolbar">
+            <input v-model="expenseSearch" class="search" type="search" placeholder="Rechercher une dépense" aria-label="Rechercher une dépense" />
+            <select v-model="expenseCategoryFilter" class="expense-category-filter" aria-label="Filtrer par catégorie">
+              <option value="">Toutes les catégories</option>
+              <option v-for="category in EXPENSE_CATEGORIES" :key="category.value" :value="category.value">{{ category.label }}</option>
+            </select>
+            <button v-if="can('EXPENSES_WRITE') && !yearClosed" type="button" class="primary-button repertoire-new" @click="startNewExpense">Nouvelle dépense</button>
+            <span v-else-if="yearClosed" class="repertoire-new expense-locked">Année clôturée : dépenses verrouillées</span>
+          </div>
 
-          <section class="panel">
-            <div class="panel-head">
-              <h2>Dépenses de l'année</h2>
-              <span>{{ money(totals.annualExpenses) }}</span>
+          <section class="repertoire-card" aria-label="Dépenses de l’année">
+            <div class="expense-row expense-row-head" aria-hidden="true">
+              <span>Date</span>
+              <span>Libellé</span>
+              <span>Catégorie</span>
+              <span class="num">Montant</span>
             </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Catégorie</th>
-                  <th>Libellé</th>
-                  <th class="num">Montant</th>
-                  <th v-if="canAny(['EXPENSES_WRITE', 'EXPENSES_DELETE'])" class="actions-col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="expense in expenseRows" :key="expense.id">
-                  <td>{{ formatDate(expense.date) }}</td>
-                  <td>{{ categoryLabel(expense.category) }}</td>
-                  <td>
-                    <strong>{{ expense.label }}</strong>
-                    <small v-if="expense.notes">{{ expense.notes }}</small>
-                  </td>
-                  <td class="num">{{ money(expense.amount) }}</td>
-                  <td v-if="canAny(['EXPENSES_WRITE', 'EXPENSES_DELETE'])">
-                    <div class="row-actions">
-                      <button v-if="can('EXPENSES_WRITE')" class="action-button" @click="editExpense(expense)" :aria-label="'Modifier la dépense ' + expense.label" :title="'Modifier la dépense ' + expense.label">
-                        <svg aria-hidden="true"><use href="#icon-edit"></use></svg>
-                      </button>
-                      <button v-if="can('EXPENSES_DELETE')" class="action-button danger" @click="deleteExpense(expense.id)" :aria-label="'Supprimer la dépense ' + expense.label" :title="'Supprimer la dépense ' + expense.label">
-                        <svg aria-hidden="true"><use href="#icon-trash"></use></svg>
-                      </button>
+            <ul v-if="expenseListItems.length" class="expense-list">
+              <template v-for="item in expenseListItems" :key="item.key">
+                <li v-if="item.kind === 'month'" class="expense-month">
+                  <span>{{ item.label }}</span>
+                  <span>{{ countLabel(item.count, 'dépense') }}</span>
+                </li>
+                <li v-else-if="item.kind === 'row'" :id="'expense-row-' + item.expense.id" class="expense-item">
+                  <component
+                    :is="can('EXPENSES_WRITE') && !yearClosed ? 'button' : 'div'"
+                    :type="can('EXPENSES_WRITE') && !yearClosed ? 'button' : undefined"
+                    :class="['expense-row', { selected: expenseFormOpen && editingExpenseId === item.expense.id }]"
+                    :aria-expanded="can('EXPENSES_WRITE') && !yearClosed ? (expenseFormOpen && editingExpenseId === item.expense.id ? 'true' : 'false') : undefined"
+                    @click="editExpense(item.expense)"
+                  >
+                    <time class="expense-date" :datetime="item.expense.date" :title="formatDate(item.expense.date)">{{ dayLabel(item.expense.date) }}</time>
+                    <span class="expense-label">
+                      <strong>{{ item.expense.label }}</strong>
+                      <small v-if="item.expense.notes">{{ item.expense.notes }}</small>
+                    </span>
+                    <span><span class="band-chip">{{ categoryLabel(item.expense.category) }}</span></span>
+                    <span class="expense-amount num">{{ money(item.expense.amount) }}</span>
+                  </component>
+                  <button
+                    v-if="can('EXPENSES_DELETE') && !can('EXPENSES_WRITE') && !yearClosed"
+                    type="button"
+                    class="action-button danger expense-delete"
+                    @click="deleteExpense(item.expense.id)"
+                    :aria-label="'Supprimer la dépense ' + item.expense.label"
+                    :title="'Supprimer la dépense ' + item.expense.label"
+                  >
+                    <svg aria-hidden="true"><use href="#icon-trash"></use></svg>
+                  </button>
+                </li>
+                <li v-else id="expense-form" class="inline-sheet expense-form">
+                  <section :aria-label="editingExpenseId ? 'Modifier la dépense' : 'Nouvelle dépense'">
+                    <span v-if="!editingExpenseId" class="eyebrow">Nouvelle dépense</span>
+                    <div class="expense-fields">
+                      <label>
+                        Date
+                        <input type="date" v-model="expenseForm.date" />
+                      </label>
+                      <label class="expense-field-label">
+                        Libellé
+                        <input v-model="expenseForm.label" placeholder="Achat, réparation, location…" />
+                      </label>
+                      <label>
+                        Catégorie
+                        <select v-model="expenseForm.category">
+                          <option v-for="category in EXPENSE_CATEGORIES" :key="category.value" :value="category.value">{{ category.label }}</option>
+                        </select>
+                      </label>
+                      <label>
+                        Montant (€)
+                        <input type="number" v-model.number="expenseForm.amount" min="0" step="0.01" class="expense-amount-input" />
+                      </label>
+                      <label class="expense-field-notes">
+                        Notes
+                        <input v-model="expenseForm.notes" placeholder="Optionnel" />
+                      </label>
                     </div>
-                  </td>
-                </tr>
-                <tr v-if="expenseRows.length === 0">
-                  <td :colspan="canAny(['EXPENSES_WRITE', 'EXPENSES_DELETE']) ? 5 : 4" class="muted">Aucune dépense saisie pour cette année.</td>
-                </tr>
-              </tbody>
-            </table>
+                    <div class="sheet-actions">
+                      <button class="primary-button" :disabled="!expenseForm.label.trim()" @click="saveExpense">{{ editingExpenseId ? 'Enregistrer' : 'Ajouter la dépense' }}</button>
+                      <button class="ghost-button" @click="resetExpenseForm">{{ expenseFormDirty ? 'Annuler' : 'Fermer' }}</button>
+                      <span v-if="expenseFormDirty" class="dirty-flag">Non enregistré</span>
+                      <button v-if="editingExpenseId && can('EXPENSES_DELETE')" type="button" class="link-button danger-link" @click="deleteExpense(editingExpenseId)">Supprimer</button>
+                    </div>
+                  </section>
+                </li>
+              </template>
+            </ul>
+            <p v-else class="empty-state">{{ state.expenses.length ? 'Aucune dépense ne correspond aux filtres.' : 'Aucune dépense saisie pour cette année.' }}</p>
           </section>
         </section>
 

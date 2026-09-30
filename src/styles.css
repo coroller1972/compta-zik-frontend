@@ -1933,21 +1933,6 @@ td small {
   margin-bottom: 12px;
 }
 
-.expense-editor {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(190px, 1fr) minmax(240px, 1.4fr) minmax(140px, 0.7fr);
-  gap: 12px;
-}
-
-.expense-editor label {
-  display: grid;
-  gap: 6px;
-}
-
-.expense-notes {
-  grid-column: 1 / -1;
-}
-
 .form-warning {
   margin: 10px 0 0;
   color: var(--danger);
@@ -2312,7 +2297,6 @@ td small {
   .form-grid.compact,
   .invoice-summary,
   .term-grid,
-  .expense-editor,
   .checkbox-list,
   .bucket-picker,
   .account-profile,
@@ -5383,24 +5367,26 @@ button.musician-row.selected:hover {
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
-/* Fiche ouverte sous la ligne du musicien : un seul défilement, celui de la page. */
-.musician-list > li {
+/* Fiche ouverte sous la ligne (musicien, dépense) : un seul défilement, celui de la page. */
+.musician-list > li,
+.expense-list > li {
   scroll-margin-top: 16px;
 }
 
-.musician-sheet {
+.inline-sheet {
   padding: 18px 18px 18px 21px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--petrol-tint) 35%, var(--card));
   box-shadow: inset 3px 0 0 var(--petrol);
 }
 
-.musician-list li:last-child.musician-sheet {
+.musician-list li:last-child.inline-sheet,
+.expense-list li:last-child.inline-sheet {
   border-bottom: 0;
   border-radius: 0 0 var(--radius-xl) var(--radius-xl);
 }
 
-.musician-sheet > section {
+.inline-sheet > section {
   display: grid;
   gap: 16px;
 }
@@ -5918,7 +5904,8 @@ input.switch:checked::after {
   }
 
   /* Laisse la place à l'en-tête mobile au-dessus de la ligne ouverte. */
-  .musician-list > li {
+  .musician-list > li,
+  .expense-list > li {
     scroll-margin-top: 80px;
   }
 }
@@ -5966,7 +5953,7 @@ input.switch:checked::after {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .musician-sheet {
+  .inline-sheet {
     padding: 14px 14px 14px 17px;
   }
 
@@ -5989,5 +5976,270 @@ input.switch:checked::after {
 
   .member-other {
     max-width: 96px;
+  }
+}
+
+/* Dépenses (partition.md §6 « Dépenses ») */
+.expense-category-tile {
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+/* Part de la catégorie dans le total de l'année. */
+.expense-share {
+  height: 6px;
+  margin-top: auto;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--track);
+}
+
+.expense-share span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--petrol);
+}
+
+.expense-category-filter {
+  width: 240px;
+  max-width: 100%;
+  border-radius: var(--radius-pill);
+  padding: 0 16px;
+}
+
+.expense-locked {
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.expense-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.expense-row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 2fr) minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.expense-item {
+  display: flex;
+  align-items: center;
+}
+
+.expense-item:last-child .expense-row {
+  border-bottom: 0;
+}
+
+button.expense-row:hover {
+  background: var(--card-alt);
+}
+
+button.expense-row:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: -2px;
+}
+
+.expense-row.selected,
+button.expense-row.selected:hover {
+  background: var(--petrol-tint);
+  box-shadow: inset 3px 0 0 var(--petrol);
+}
+
+.expense-row-head {
+  padding-top: 14px;
+  border-bottom: 1.5px solid var(--line-strong);
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.expense-month {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--card-alt);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.expense-month span:first-child {
+  color: var(--ink-soft);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.expense-date,
+.expense-amount {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.expense-date {
+  color: var(--ink-soft);
+}
+
+.expense-label {
+  min-width: 0;
+}
+
+.expense-label strong,
+.expense-label small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expense-label strong {
+  font-size: 14px;
+}
+
+.expense-label small {
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.expense-delete {
+  flex: none;
+  margin-right: 12px;
+}
+
+.expense-fields {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 2fr) minmax(0, 1fr) 140px;
+  gap: 10px 12px;
+}
+
+.expense-fields label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.expense-field-notes {
+  grid-column: 1 / -1;
+}
+
+.expense-amount-input {
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.expense-form .eyebrow {
+  margin: 0;
+}
+
+@media screen and (max-width: 980px) {
+  .expense-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .expense-field-label {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+}
+
+@media screen and (max-width: 760px) {
+  /* Total sur toute la largeur, puis le top 3 côte à côte en format réduit. */
+  .expense-kpi-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .expense-kpi-tiles .kpi-tile.emphasis {
+    grid-column: 1 / -1;
+  }
+
+  .expense-category-tile {
+    gap: 8px;
+    padding: 12px;
+    border-radius: var(--radius-lg);
+  }
+
+  .expense-category-tile .kpi-tile-copy {
+    gap: 4px;
+  }
+
+  /* Deux lignes réservées au libellé : les montants restent alignés. */
+  .expense-category-tile .kpi-tile-copy span {
+    min-height: 2.5em;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .expense-category-tile .kpi-tile-copy strong {
+    font-size: 20px;
+  }
+
+  .expense-category-tile .kpi-tile-copy small {
+    font-size: 11px;
+  }
+
+  .expense-category-filter {
+    width: 100%;
+  }
+
+  .expense-row-head {
+    display: none;
+  }
+
+  /* Libellé et montant, puis date et catégorie. */
+  .expense-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 4px;
+    padding: 12px 14px;
+  }
+
+  .expense-row .expense-label {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .expense-row .expense-amount {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  .expense-row .expense-date {
+    grid-row: 2;
+    grid-column: 1;
+    font-size: 12px;
+  }
+
+  .expense-row > span:nth-child(3) {
+    grid-row: 2;
+    grid-column: 2;
+    justify-self: end;
+  }
+
+  .expense-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
