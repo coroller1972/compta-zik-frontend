@@ -1963,6 +1963,13 @@ td small {
   gap: 32px;
 }
 
+/* Sans min-width: 0, une feuille large élargit la page au lieu de défiler dans son cadre. */
+.signature-page,
+.signature-stack,
+.signature-sheet {
+  min-width: 0;
+}
+
 .signature-sheet {
   break-inside: avoid;
   page-break-inside: avoid;
@@ -2008,8 +2015,9 @@ td small {
   border-radius: var(--radius-lg);
 }
 
+/* Colonnes d'au moins 128 px : au-delà, la feuille défile dans son cadre au lieu de faire déborder les noms. */
 .signature-table {
-  min-width: 980px;
+  min-width: max(980px, calc(170px + var(--columns, 6) * 128px));
   table-layout: fixed;
   font-size: 14px;
 }
@@ -2054,9 +2062,13 @@ td small {
   font-size: 12px;
 }
 
+/* Noms longs : retour à la ligne aux espaces et traits d'union, coupure en dernier recours, jamais de débordement. */
 .signature-table thead strong {
   margin-top: 2px;
+  font-size: 13px;
   font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .signature-table thead small {
