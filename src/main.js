@@ -2370,7 +2370,7 @@ const app = createApp({
       const savedExpense = await requestResource(
         existing ? "PUT" : "POST",
         existing ? `expenses/${existing.id}` : `accounting-years/${state.settings.year}/expenses`,
-        existing ? { ...payload, id: existing.id } : payload,
+        existing ? { ...payload, id: existing.id, version: existing.version } : payload,
         {
           successMessage: existing ? "Dépense enregistrée" : "Dépense créée",
           errorMessage: "Dépense non enregistrée côté backend",
