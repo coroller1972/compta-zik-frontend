@@ -248,6 +248,17 @@ Même principe pour les deux écrans : une barre d'outils (recherche en pilule, 
 - Liste groupée par mois (en-tête mono `--card-alt` : mois en capitales + nombre de dépenses) ; ligne : jour (« mar. 12 », date complète au survol), libellé et notes, catégorie en pastille `--rail`, montant en mono.
 - Saisie comme la fiche musicien : un clic sur la ligne déplie le formulaire dessous (date, libellé, catégorie, montant, notes), un second clic le replie ; une nouvelle dépense s'ouvre en tête de liste, datée du jour pendant l'année en cours. La suppression se fait depuis le formulaire, après confirmation.
 
+### Facturation
+
+- Bascule segmentée « Élèves · Prestataires » avec compteurs ; année clôturée : mention « émission verrouillée » et aucune action sur les documents (le backend les refuse).
+- Élèves :
+  - tuile foncée (`--petrol-deep`) « À facturer aux élèves » : total du trimestre, détail cours / cotisations en mono, rappel de la cotisation annuelle ;
+  - carte « Circuit des factures » : quatre étapes cliquables (À générer → Brouillons → Validées → Envoyées) avec leur nombre en mono ; l'étape à traiter est en laiton (`--brass-tint`), les envoyées en pétrole léger. Seuls les boutons utiles à l'étape en cours s'affichent (prévisualiser ou régénérer, valider définitivement, marquer envoyées), avec le PDF global ;
+  - liste filtrable par étape et par nom : avatar, élève et détail des montants en mono, pastille de statut et numéro, total, puis le PDF et **une** action principale (« Marquer envoyée » pleine, « Corriger » en contour) ; les actions rares (corriger, annuler une facture validée) sont dans le menu « ••• ».
+- Prestataires : une carte par prestataire avec le restant à émettre en display, une barre émis (`--petrol`) / restant (`--brass-bright`), la légende des montants, un encart d'émission « Situation n°N jusqu'à Sxx » (prévisualiser, régénérer, valider), les régularisations en attente, la frise des situations (pastille numérotée, pointillée laiton pour le brouillon) et le détail par semaine replié.
+- Les motifs (annulation, correction) et les écarts (montant signé + motif) se saisissent dans un bandeau `--brick-tint` sous la ligne concernée, jamais dans une fenêtre du navigateur.
+- L'historique des corrections (originaux, avoirs) est replié en bas de page.
+
 ### Émargement mobile (390 px)
 
 Saisie rapide des présences d'une journée :

@@ -956,8 +956,7 @@ td small {
   gap: 10px;
 }
 
-.group-row,
-.billing-row {
+.group-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -984,49 +983,6 @@ td small {
 
 .search {
   max-width: 280px;
-}
-
-.billing-row p {
-  margin: 0;
-  line-height: 1.45;
-}
-
-.invoice-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.invoice-summary article {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 16px 18px;
-  background: var(--card-alt);
-}
-
-.invoice-summary span,
-.invoice-summary strong,
-.invoice-summary small {
-  display: block;
-}
-
-.invoice-summary span,
-.invoice-summary small {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.invoice-summary strong {
-  margin-top: 4px;
-  font-family: var(--font-display);
-  font-size: 30px;
-  font-weight: 400;
-  line-height: 1.1;
-}
-
-.invoice-summary small {
-  margin-top: 4px;
 }
 
 .success-note {
@@ -1060,68 +1016,6 @@ td small {
   min-width: 980px;
 }
 
-.teacher-billing-list {
-  display: grid;
-  gap: 14px;
-}
-
-.teacher-billing-card {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--card-alt);
-  padding: 18px;
-}
-
-.teacher-billing-head h3 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 400;
-}
-
-.teacher-billing-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 14px;
-  margin-bottom: 12px;
-}
-
-.teacher-billing-head h3,
-.teacher-billing-head span {
-  display: block;
-}
-
-.teacher-billing-head span {
-  color: var(--muted);
-  margin-top: 3px;
-}
-
-.teacher-billing-head strong {
-  white-space: nowrap;
-}
-
-.week-cutoff { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); font-size: 13px; font-weight: 600; }
-.week-cutoff select { width: auto; min-width: 88px; font-family: var(--font-mono); }
-.teacher-financial-metrics { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 16px 0; }
-.teacher-financial-metrics > div { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--card); }
-.teacher-financial-metrics > div.remaining { border-color: transparent; background: var(--brass-tint); }
-.teacher-financial-metrics span { display: block; margin-bottom: 4px; color: var(--ink-muted); font-size: 13px; }
-.teacher-financial-metrics strong { color: var(--ink); font-size: 18px; }
-.teacher-financial-metrics .remaining span { color: var(--brass-tint-ink); }
-.teacher-financial-metrics .remaining strong { color: var(--brass-ink); }
-.installment-history, .pending-adjustments { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; }
-.installment-row, .pending-adjustments > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.installment-row > span:first-child, .pending-adjustments > div > span { flex: 1 1 auto; }
-
-.document-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
 .document-link {
   display: inline-flex;
   align-items: center;
@@ -1142,7 +1036,6 @@ td small {
 
 /* Boutons — DA « Partition » §5 : principal, secondaire, danger (le discret est .link-button) */
 .primary-button,
-.billing-row button,
 .api-form button,
 .ghost-button,
 .danger-button,
@@ -1163,7 +1056,6 @@ td small {
 }
 
 .primary-button,
-.billing-row button,
 .api-form button {
   border-color: var(--petrol);
   background: var(--petrol);
@@ -1171,7 +1063,6 @@ td small {
 }
 
 .primary-button:hover:not(:disabled),
-.billing-row button:hover:not(:disabled),
 .api-form button:hover:not(:disabled) {
   border-color: var(--link-hover);
   background: var(--link-hover);
@@ -1214,7 +1105,6 @@ td small {
 }
 
 .primary-button:focus-visible,
-.billing-row button:focus-visible,
 .api-form button:focus-visible,
 .ghost-button:focus-visible,
 .danger-button:focus-visible,
@@ -2280,7 +2170,6 @@ td small {
 }
 
 @media (max-width: 980px) {
-  .teacher-financial-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shell {
     grid-template-columns: 1fr;
   }
@@ -2307,7 +2196,6 @@ td small {
   .split,
   .form-grid,
   .form-grid.compact,
-  .invoice-summary,
   .term-grid,
   .checkbox-list,
   .bucket-picker,
@@ -2325,9 +2213,7 @@ td small {
 
   .topbar,
   .panel-head,
-  .teacher-billing-head,
-  .group-row,
-  .billing-row {
+  .group-row {
     align-items: stretch;
     flex-direction: column;
   }
@@ -2770,21 +2656,6 @@ h2 {
   font-size: 12px;
 }
 
-.document-workflow-note {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border: 0;
-  border-radius: var(--radius-lg);
-  background: var(--brass-tint);
-  color: var(--brass-tint-ink);
-  font-size: 13px;
-}
-
-.document-workflow-note span { color: var(--brass-tint-ink); }
-.document-workflow-note .icon { width: 18px; height: 18px; color: var(--brass); }
-
 .import-analysis {
   margin-top: 18px;
   padding: 16px;
@@ -2805,14 +2676,6 @@ h2 {
 .import-confirmation code { color: var(--brick-tint-ink); font-weight: 800; }
 .import-confirmation small { color: var(--muted); }
 
-.document-row-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
-.document-row-actions button { min-height: 32px; padding: 0 2px; border: 0; background: transparent; color: var(--link); font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 4px; }
-.document-row-actions button:hover:not(:disabled) { color: var(--link-hover); }
-.document-row-actions button:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
-.document-cell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.document-history-list { display: grid; gap: 8px; }
-.document-history-list article { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); }
-
 /* Pastilles de statut de document — DA « Partition » §5 */
 .doc-pill { display: inline-block; padding: 2px 10px; border: 1.5px solid transparent; border-radius: var(--radius-pill); font-size: 12px; font-weight: 700; line-height: 1.4; white-space: nowrap; }
 .doc-pill.draft { border-style: dashed; border-color: var(--ink-faint); color: var(--ink-soft); }
@@ -2820,12 +2683,8 @@ h2 {
 .doc-pill.sent { background: var(--petrol); color: var(--on-petrol); }
 .doc-pill.cancelled { background: var(--rail); color: var(--ink-muted); text-decoration: line-through; }
 .doc-pill.credited { background: var(--rail); color: var(--ink-soft); }
-.document-history-list strong, .document-history-list span { display: block; }
-.document-history-list span { color: var(--muted); font-size: 12px; }
 
 @media (max-width: 700px) {
-  .document-workflow-note { align-items: flex-start; flex-direction: column; }
-  .document-workflow-note .icon { transform: rotate(90deg); }
   .import-impact-grid { grid-template-columns: 1fr; }
 }
 
@@ -4557,60 +4416,6 @@ td strong {
   margin-bottom: 18px;
 }
 
-.billing-tabs {
-  width: fit-content;
-  max-width: 100%;
-  display: flex;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
-  background: var(--track);
-}
-
-.billing-tab {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: 14px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.billing-tab:hover:not(.active) {
-  color: var(--ink);
-}
-
-.billing-tab:focus-visible {
-  outline: 2px solid var(--petrol);
-  outline-offset: 2px;
-}
-
-.billing-tab.active {
-  background: var(--inverse-bg);
-  color: var(--inverse-ink);
-}
-
-.billing-tab > span {
-  min-width: 22px;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  background: var(--rail);
-  color: var(--ink-soft);
-  font-size: 12px;
-  text-align: center;
-}
-
-.billing-tab.active > span {
-  background: color-mix(in srgb, var(--inverse-ink) 20%, transparent);
-  color: var(--inverse-ink);
-}
-
 .premium-file-row { display: grid; gap: 8px; }
 .premium-file-picker {
   display: inline-flex;
@@ -5173,7 +4978,6 @@ td strong {
     display: none;
   }
 }
-
 
 /* Répertoire — Musiciens et Groupes (partition.md §6 « Musiciens et Groupes ») */
 .repertoire-view {
@@ -6253,5 +6057,852 @@ button.expense-row.selected:hover {
 
   .expense-fields {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Facturation (partition.md §6 « Facturation ») */
+.billing-view {
+  gap: 16px;
+}
+
+.billing-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.billing-switch {
+  width: fit-content;
+}
+
+.billing-switch small {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.billing-locked {
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.billing-hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr);
+  gap: 16px;
+}
+
+/* Total du trimestre : tuile foncée, comme le total des dépenses. */
+.billing-total {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 22px;
+  border-radius: var(--radius-xl);
+  background: var(--petrol-deep);
+  color: var(--on-petrol-deep);
+}
+
+.billing-total > span,
+.billing-total > small {
+  color: var(--on-petrol-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.billing-total > small {
+  margin-top: auto;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.billing-total strong {
+  font-family: var(--font-display);
+  font-size: clamp(38px, 3.6vw, 48px);
+  font-weight: 400;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.billing-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 6px 0 10px;
+  color: var(--on-petrol-muted);
+  font-size: 13px;
+}
+
+.billing-split b {
+  display: block;
+  color: var(--on-petrol-deep);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.billing-flow {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+}
+
+.billing-flow-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.billing-flow-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.billing-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.billing-step {
+  position: relative;
+}
+
+/* Flèche entre deux étapes. */
+.billing-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -7px;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  border-top: 1.5px solid var(--ink-faint);
+  border-right: 1.5px solid var(--ink-faint);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.billing-step button {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card-alt);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.billing-step button:hover {
+  border-color: var(--ink-faint);
+}
+
+.billing-step button:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: 2px;
+}
+
+.billing-step button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+
+.billing-step span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.billing-step b {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.billing-step small {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* Étape à traiter maintenant : laiton ; étape terminée : pétrole léger. */
+.billing-step.now button {
+  border-color: var(--brass);
+  background: var(--brass-tint);
+}
+
+.billing-step.now span,
+.billing-step.now small {
+  color: var(--brass-tint-ink);
+}
+
+.billing-step.done button {
+  border-color: transparent;
+  background: var(--petrol-tint);
+}
+
+.billing-step.done span,
+.billing-step.done small {
+  color: var(--petrol-tint-ink);
+}
+
+.billing-flow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.billing-flow-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--petrol-tint-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.billing-flow-done svg,
+.billing-summary-link svg,
+.teacher-draft-link svg,
+.teacher-weeks .link-button svg,
+.billing-history-toggle svg,
+.billing-row-menu svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.billing-summary-link,
+.teacher-draft-link {
+  gap: 6px;
+}
+
+.billing-summary-link {
+  margin-left: auto;
+}
+
+.billing-flow-note {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+/* Liste des factures élèves */
+.billing-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.billing-toolbar .search {
+  width: 240px;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+}
+
+.billing-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.billing-list > li {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.billing-list > li:last-child {
+  border-bottom: 0;
+}
+
+.invoice-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1.5fr) minmax(120px, 0.8fr) 110px minmax(200px, auto);
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+}
+
+.invoice-row-head {
+  padding-top: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1.5px solid var(--line-strong);
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.billing-name,
+.billing-status {
+  min-width: 0;
+}
+
+.billing-name strong {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.billing-name small,
+.billing-status small {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.billing-status .muted {
+  font-size: 13px;
+}
+
+.billing-amount {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.billing-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Boutons compacts des lignes : pilule contour, ou pleine pour l'action suivante. */
+.small-button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.small-button:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.small-button.primary {
+  border-color: var(--petrol);
+  background: var(--petrol);
+  color: var(--on-petrol);
+}
+
+.small-button.primary:hover:not(:disabled) {
+  border-color: var(--link-hover);
+  background: var(--link-hover);
+}
+
+.small-button:focus-visible,
+.icon-pill:focus-visible,
+.row-menu button:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: 2px;
+}
+
+.icon-pill {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.icon-pill:hover {
+  border-color: var(--ink-faint);
+  color: var(--ink);
+}
+
+.billing-row-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.row-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 160px;
+  display: grid;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--shadow-overlay);
+}
+
+.row-menu button {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.row-menu button:hover {
+  background: var(--card-alt);
+}
+
+.row-menu button.danger {
+  color: var(--brick);
+}
+
+/* Motif d'annulation, de correction ou d'écart saisi dans la page. */
+.reason-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 18px 12px 66px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--brick-tint);
+}
+
+.reason-form label {
+  color: var(--brick-tint-ink);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.reason-form input {
+  flex: 1 1 220px;
+  min-height: 36px;
+}
+
+.reason-form input.reason-amount {
+  flex: 0 0 110px;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.reason-form small {
+  flex-basis: 100%;
+  color: var(--brick-tint-ink);
+  font-size: 12px;
+}
+
+/* Prestataires */
+.teacher-billing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.teacher-card {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.teacher-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.teacher-card-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.05;
+}
+
+.teacher-card-head > div > span {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.teacher-remaining {
+  flex: none;
+  text-align: right;
+}
+
+.teacher-remaining span {
+  display: block;
+  color: var(--brass-tint-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.teacher-remaining strong {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.teacher-progress {
+  height: 10px;
+  display: flex;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--track);
+}
+
+.teacher-progress i,
+.teacher-legend i {
+  display: block;
+}
+
+.teacher-progress .issued,
+.teacher-legend .issued {
+  background: var(--petrol);
+}
+
+.teacher-progress .remaining,
+.teacher-legend .remaining {
+  background: var(--brass-bright);
+}
+
+.teacher-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.teacher-legend div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.teacher-legend dt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-muted);
+}
+
+.teacher-legend dt i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.teacher-legend dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.teacher-emit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  background: var(--card-alt);
+}
+
+.teacher-emit label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.teacher-emit select {
+  width: auto;
+  min-width: 88px;
+  min-height: 36px;
+  font-family: var(--font-mono);
+}
+
+.teacher-draft-link {
+  margin-left: auto;
+}
+
+.teacher-adjustments,
+.teacher-timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.teacher-adjustments h3,
+.teacher-timeline h3 {
+  margin: 0;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.teacher-adjustments div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.teacher-adjustments div span {
+  flex: 1;
+}
+
+.teacher-adjustments b {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.teacher-adjustments .danger-link {
+  min-height: 0;
+  margin-left: 0;
+}
+
+.teacher-timeline ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.teacher-timeline .reason-form {
+  margin: 8px 0 0 32px;
+}
+
+.situation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 13px;
+}
+
+.situation-dot {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--petrol);
+  color: var(--on-petrol);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.situation-dot.next {
+  border: 1.5px dashed var(--brass);
+  background: transparent;
+  color: var(--brass-ink);
+}
+
+.situation-period {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.situation-row .document-link {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.situation-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.teacher-weeks .link-button {
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.teacher-weeks .link-button[aria-expanded="true"] svg,
+.billing-history-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.teacher-weeks table {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.teacher-weeks th,
+.teacher-weeks td {
+  padding: 8px 10px;
+}
+
+.teacher-weeks td.num {
+  font-family: var(--font-mono);
+}
+
+/* Historique des corrections, replié par défaut */
+.billing-history-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.billing-history-toggle strong {
+  color: var(--ink);
+}
+
+.billing-history-toggle:focus-visible {
+  outline: 2px solid var(--petrol);
+  outline-offset: -2px;
+}
+
+.billing-history-list {
+  margin: 0;
+  padding: 0 18px 12px;
+  list-style: none;
+}
+
+.billing-history-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+
+.billing-history-list .muted {
+  flex: 1;
+}
+
+@media screen and (max-width: 1100px) {
+  .billing-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media screen and (max-width: 760px) {
+  .billing-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .billing-step:nth-child(2)::after {
+    content: none;
+  }
+
+  .billing-summary-link {
+    margin-left: 0;
+  }
+
+  .billing-toolbar .search {
+    width: 100%;
+  }
+
+  .invoice-row-head {
+    display: none;
+  }
+
+  /* Nom et total, puis statut et actions. */
+  .invoice-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    row-gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .invoice-row .billing-amount {
+    grid-row: 1;
+    grid-column: 3;
+  }
+
+  .invoice-row .billing-status {
+    grid-column: 2;
+  }
+
+  .invoice-row .billing-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+
+  .reason-form {
+    margin: 0 14px 12px;
+  }
+
+  .teacher-billing-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .teacher-card-head {
+    flex-direction: column;
+  }
+
+  .teacher-remaining {
+    text-align: left;
   }
 }

@@ -423,6 +423,13 @@ const app = createApp({
     const selectedTermId = ref("t1");
     const activeView = ref("dashboard");
     const billingTab = ref("students");
+    const billingStudentFilter = ref("all");
+    const billingStudentSearch = ref("");
+    const billingRowMenuId = ref("");
+    const billingHistoryOpen = ref(false);
+    const teacherWeeksOpen = reactive({});
+    // Motif saisi dans la page (annulation, correction, écart) au lieu des fenêtres du navigateur.
+    const documentReasonForm = reactive({ documentId: "", action: "", reason: "", amount: "" });
     const authSession = ref(loadStoredAuthSession());
     const apiStatus = ref(authSession.value ? "connecté" : "déconnecté");
     const currentUser = ref(normalizeAuthUser(authSession.value?.user));
@@ -639,6 +646,9 @@ const app = createApp({
     const todayWeekday = WEEKDAYS[new Date().getDay() - 1] || null;
     const slotsDay = ref(todayWeekday || WEEKDAYS[0]);
     // À l'impression, la semaine entière s'affiche, même depuis un écran étroit (bouton ou Ctrl+P).
+    window.addEventListener("click", (event) => {
+      if (billingRowMenuId.value && !event.target.closest?.(".billing-row-menu")) billingRowMenuId.value = "";
+    });
     const slotsPrinting = ref(false);
     const slotsPrintDate = ref("");
     window.addEventListener("beforeprint", () => {
@@ -1648,6 +1658,88 @@ const app = createApp({
 
     const billableStudentRows = computed(() => studentBillingRows.value.filter((item) => item.totalDue > 0));
 
+    /** Étape de la facture d'un élève dans le circuit ; une facture annulée ou créditée est à régénérer. */
+    function studentInvoiceStep(document) {
+      return ["DRAFT", "GENERATED", "SENT"].includes(document?.status) ? document.status : "NONE";
+    }
+
+    const STUDENT_INVOICE_STEPS = [
+      { key: "NONE", label: "À générer", hint: "à prévisualiser" },
+      { key: "DRAFT", label: "Brouillons", hint: "à vérifier puis valider" },
+      { key: "GENERATED", label: "Validées", hint: "à transmettre" },
+      { key: "SENT", label: "Envoyées", hint: "terminé" },
+    ];
+
+    const studentInvoiceItems = computed(() => billableStudentRows.value.map((row) => {
+      const document = documentForMusician(row.musician.id);
+      return { ...row, document, step: studentInvoiceStep(document) };
+    }));
+
+    const studentInvoiceSteps = computed(() => {
+      const steps = STUDENT_INVOICE_STEPS.map((step) => ({
+        ...step,
+        count: studentInvoiceItems.value.filter((item) => item.step === step.key).length,
+      }));
+      const current = steps.find((step) => step.key !== "SENT" && step.count > 0)?.key || "";
+      return steps.map((step) => ({
+        ...step,
+        state: step.key === current ? "now" : step.key === "SENT" && step.count > 0 ? "done" : "",
+      }));
+    });
+
+    const studentStepCount = (key) => studentInvoiceSteps.value.find((step) => step.key === key)?.count || 0;
+
+    const filteredStudentInvoiceItems = computed(() => {
+      const q = billingStudentSearch.value.trim().toLowerCase();
+      return studentInvoiceItems.value.filter((item) => (
+        (billingStudentFilter.value === "all" || item.step === billingStudentFilter.value)
+        && (!q || fullName(item.musician).toLowerCase().includes(q))
+      ));
+    });
+
+    function toggleBillingRowMenu(id) {
+      billingRowMenuId.value = billingRowMenuId.value === id ? "" : id;
+    }
+
+    function openDocumentReason(document, action) {
+      billingRowMenuId.value = "";
+      Object.assign(documentReasonForm, { documentId: document.id, action, reason: "", amount: "" });
+      nextTick(() => (window.document.getElementById(`amount-${document.id}`) || window.document.getElementById(`reason-${document.id}`))?.focus());
+    }
+
+    function closeDocumentReason() {
+      Object.assign(documentReasonForm, { documentId: "", action: "", reason: "", amount: "" });
+    }
+
+    async function submitDocumentReason(document) {
+      const reason = documentReasonForm.reason.trim();
+      if (!reason) return showToast("Le motif est obligatoire", "warning");
+      let done = false;
+      if (documentReasonForm.action === "cancel") done = await cancelFinalDocument(document, reason);
+      if (documentReasonForm.action === "correct") done = await correctFinalDocument(document, reason);
+      if (documentReasonForm.action === "adjust") {
+        const amount = Number(String(documentReasonForm.amount).replace(",", "."));
+        if (!Number.isFinite(amount) || amount === 0) return showToast("Le montant doit être non nul", "warning");
+        done = await reportTeacherAdjustment(document, amount, reason);
+      }
+      if (done) closeDocumentReason();
+    }
+
+    /** Parts émise et restante de l'acquis d'un prestataire (largeurs de la barre de progression). */
+    function teacherProgress(section) {
+      const base = Math.max(section.accruedAmount, section.issuedAmount + section.remainingAmount, 0);
+      if (!base) return { issued: 0, remaining: 0 };
+      const clamp = (value) => Math.max(0, Math.min(100, Math.round((value / base) * 100)));
+      return { issued: clamp(section.issuedAmount), remaining: clamp(section.remainingAmount) };
+    }
+
+    function nextInstallmentNumber(teacherId) {
+      const draft = draftForTeacher(teacherId);
+      if (draft?.installmentNumber) return draft.installmentNumber;
+      const numbers = finalizedDocumentsForTeacher(teacherId).map((document) => Number(document.installmentNumber) || 0);
+      return (numbers.length ? Math.max(...numbers) : 0) + 1;
+    }
+
     const teacherWeeklyRows = computed(() => (billingSummary.value?.teacherInvoiceRequests || []).flatMap((request) => {
       const teacher = teachersById.value[request.teacherId];
       if (!teacher) return [];
@@ -2627,15 +2719,10 @@ const app = createApp({
       return Number(teacherEndWeeks[teacherId]);
     }
 
-    async function reportTeacherAdjustment(document) {
-      const amountText = window.prompt("Montant signé de l'écart (ex. 25,00 ou -25,00) :");
-      if (!amountText) return;
-      const amount = Number(amountText.replace(",", "."));
-      if (!Number.isFinite(amount) || amount === 0) return showToast("Le montant doit être non nul", "warning");
-      const reason = window.prompt("Motif de la régularisation :");
-      if (!reason?.trim()) return;
-      const result = await requestResource("POST", `documents/${document.id}/teacher-adjustments`, { amount, reason: reason.trim() }, { successMessage: "Écart reporté sur la prochaine situation", errorMessage: "Écart non enregistré" });
+    async function reportTeacherAdjustment(document, amount, reason) {
+      const result = await requestResource("POST", `documents/${document.id}/teacher-adjustments`, { amount, reason }, { successMessage: "Écart reporté sur la prochaine situation", errorMessage: "Écart non enregistré" });
       if (result) await loadBillingSummary();
+      return Boolean(result);
     }
 
     async function deleteTeacherAdjustment(adjustment) {
@@ -2679,27 +2766,24 @@ const app = createApp({
       if (updated) replaceLoadedDocument(updated);
     }
 
-    async function cancelFinalDocument(document) {
-      const reason = window.prompt("Motif obligatoire de l’annulation :");
-      if (!reason?.trim()) return;
-      const updated = await requestResource("POST", `documents/${document.id}/cancel`, { reason: reason.trim() }, { successMessage: "Document annulé", errorMessage: "Annulation impossible" });
+    async function cancelFinalDocument(document, reason) {
+      const updated = await requestResource("POST", `documents/${document.id}/cancel`, { reason }, { successMessage: "Document annulé", errorMessage: "Annulation impossible" });
       if (updated) {
         replaceLoadedDocument(updated);
         documentHistory.value.push(updated);
       }
+      return Boolean(updated);
     }
 
-    async function correctFinalDocument(document) {
-      const reason = window.prompt("Motif obligatoire de la correction :");
-      if (!reason?.trim()) return;
-      if (!window.confirm("Créer la chaîne de correction sans modifier le document original ?")) return;
-      const result = await requestResource("POST", `documents/${document.id}/correct`, { reason: reason.trim() }, { successMessage: "Correction créée", errorMessage: "Correction impossible" });
-      if (!result) return;
+    async function correctFinalDocument(document, reason) {
+      const result = await requestResource("POST", `documents/${document.id}/correct`, { reason }, { successMessage: "Correction créée", errorMessage: "Correction impossible" });
+      if (!result) return false;
       [studentInvoiceDocuments, teacherInvoiceRequestDocuments].forEach((collection) => {
         const index = collection.value.findIndex((entry) => entry.id === document.id);
         if (index >= 0) collection.value.splice(index, 1, result.replacement);
       });
       documentHistory.value.push(result.original, ...(result.creditNote ? [result.creditNote] : []));
+      return true;
     }
 
     function documentStatusLabel(status) {
@@ -4425,6 +4509,22 @@ const app = createApp({
       cancelFinalDocument,
       correctFinalDocument,
       documentStatusLabel,
+      billingStudentFilter,
+      billingStudentSearch,
+      billingRowMenuId,
+      billingHistoryOpen,
+      teacherWeeksOpen,
+      documentReasonForm,
+      studentInvoiceItems,
+      studentInvoiceSteps,
+      studentStepCount,
+      filteredStudentInvoiceItems,
+      toggleBillingRowMenu,
+      openDocumentReason,
+      closeDocumentReason,
+      submitDocumentReason,
+      teacherProgress,
+      nextInstallmentNumber,
       isSlotDisabled,
       slotTakenByOtherMusician,
       saveApiBase,
@@ -5890,205 +5990,271 @@ const app = createApp({
           </section>
         </section>
 
-        <section v-if="activeView === 'billing' && !mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" class="view-stack">
-          <div class="document-workflow-note">
-            <strong>1. Prévisualiser et corriger</strong>
-            <span>Les PDF restent des brouillons régénérables.</span>
-            <svg class="icon" aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
-            <strong>2. Valider définitivement</strong>
-            <span>Les documents validés sont ensuite figés.</span>
+        <section v-if="activeView === 'billing' && !mustChangePassword && canAny(['BILLING_READ', 'BILLING_PRINT'])" class="view-stack billing-view">
+          <div class="billing-bar">
+            <div class="segmented billing-switch" role="tablist" aria-label="Sections de facturation">
+              <button type="button" role="tab" :aria-selected="billingTab === 'students' ? 'true' : 'false'" :aria-pressed="billingTab === 'students' ? 'true' : 'false'" @click="billingTab = 'students'">
+                Élèves<small>{{ billableStudentRows.length }}</small>
+              </button>
+              <button type="button" role="tab" :aria-selected="billingTab === 'providers' ? 'true' : 'false'" :aria-pressed="billingTab === 'providers' ? 'true' : 'false'" @click="billingTab = 'providers'">
+                Prestataires<small>{{ teacherBillingSections.length }}</small>
+              </button>
+            </div>
+            <span v-if="yearClosed" class="billing-locked">Année clôturée : émission verrouillée</span>
           </div>
+
           <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error' }" role="status">
             <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Calcul comptable non chargé.') }}</span>
             <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
           </div>
-          <div class="billing-tabs" role="tablist" aria-label="Sections de facturation">
-            <button
-              type="button"
-              role="tab"
-              :aria-selected="billingTab === 'students'"
-              :class="['billing-tab', { active: billingTab === 'students' }]"
-              @click="billingTab = 'students'"
-            >
-              Factures élèves
-              <span>{{ studentInvoiceDocuments.length || billableStudentRows.length }}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              :aria-selected="billingTab === 'providers'"
-              :class="['billing-tab', { active: billingTab === 'providers' }]"
-              @click="billingTab = 'providers'"
-            >
-              Demandes prestataires
-              <span>{{ teacherInvoiceRequestDocuments.length || teacherBillingSections.length }}</span>
-            </button>
-          </div>
-          <section v-if="billingTab === 'students'" class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Factures élèves</h2>
-                <span>{{ studentInvoiceDocuments.length || billableStudentRows.length }} factures</span>
-              </div>
-              <div class="document-actions">
-                <a v-if="studentInvoiceSummaryDocument" class="document-link" href="#" @click.prevent="downloadDocument(studentInvoiceSummaryDocument)">
-                  PDF global
-                </a>
-                <button v-if="can('BILLING_PRINT')" class="primary-button" @click="prepareAllStudentInvoices">Prévisualiser les factures</button>
-                <button v-if="can('BILLING_PRINT') && studentInvoiceDocuments.some(document => document.status === 'DRAFT')" class="danger-outline-button" @click="finalizeAllStudentInvoices">Valider définitivement</button>
-                <button v-if="can('BILLING_PRINT')" class="ghost-button" @click="markAllStudentInvoicesSent" :disabled="markingStudentInvoicesSent || yearClosed || !studentInvoicesToSend.length" :title="yearClosed ? 'L’année est clôturée.' : !studentInvoicesToSend.length ? 'Aucune facture individuelle validée à marquer comme envoyée.' : 'Marquer les factures individuelles validées du trimestre comme envoyées.'">{{ markingStudentInvoicesSent ? 'Marquage en cours…' : 'Tout marquer comme envoyé' }}</button>
-              </div>
-            </div>
-            <div class="invoice-summary">
-              <article>
-                <span>Montant global élèves</span>
+
+          <template v-if="billingTab === 'students'">
+            <div class="billing-hero">
+              <article class="billing-total">
+                <span>À facturer aux élèves · {{ selectedTerm.name }}</span>
                 <strong>{{ billingMoney(studentTotal) }}</strong>
+                <div class="billing-split">
+                  <div>Cours individuels<b>{{ billingMoney(totals.studentBilling) }}</b></div>
+                  <div>Cotisations groupe<b>{{ billingMoney(totals.groupFees) }}</b></div>
+                </div>
+                <small>{{ isFirstTerm ? 'Cotisation annuelle appliquée ce trimestre' : 'Cotisation annuelle déjà traitée au premier trimestre' }}</small>
               </article>
-              <article>
-                <span>Cours individuels</span>
-                <strong>{{ billingMoney(totals.studentBilling) }}</strong>
-              </article>
-              <article>
-                <span>Cotisations groupe</span>
-                <strong>{{ billingMoney(totals.groupFees) }}</strong>
-                <small>{{ isFirstTerm ? 'Cotisation annuelle appliquée' : 'Cotisation annuelle déjà traitée au T1' }}</small>
-              </article>
+
+              <section class="billing-flow" aria-label="Circuit des factures élèves">
+                <div class="billing-flow-head">
+                  <h2>Circuit des factures</h2>
+                  <span class="doc-pill draft">Brouillons régénérables jusqu’à validation</span>
+                </div>
+                <ol class="billing-steps">
+                  <li v-for="step in studentInvoiceSteps" :key="step.key" :class="['billing-step', step.state]">
+                    <button type="button" :aria-pressed="billingStudentFilter === step.key ? 'true' : 'false'" @click="billingStudentFilter = billingStudentFilter === step.key ? 'all' : step.key">
+                      <span>{{ step.label }}</span>
+                      <b>{{ step.count }}</b>
+                      <small>{{ step.hint }}</small>
+                    </button>
+                  </li>
+                </ol>
+                <div v-if="can('BILLING_PRINT')" class="billing-flow-actions">
+                  <button v-if="studentStepCount('NONE') || studentStepCount('DRAFT')" class="primary-button" :disabled="yearClosed" @click="prepareAllStudentInvoices">
+                    {{ studentStepCount('NONE') ? 'Prévisualiser les factures' : 'Régénérer les brouillons' }}
+                  </button>
+                  <button v-if="studentStepCount('DRAFT')" class="danger-outline-button" :disabled="yearClosed" @click="finalizeAllStudentInvoices">Valider définitivement ({{ studentStepCount('DRAFT') }})</button>
+                  <button v-if="studentInvoicesToSend.length" :class="studentStepCount('NONE') || studentStepCount('DRAFT') ? 'ghost-button' : 'primary-button'" :disabled="markingStudentInvoicesSent || yearClosed" @click="markAllStudentInvoicesSent">
+                    {{ markingStudentInvoicesSent ? 'Marquage en cours…' : 'Marquer envoyées (' + studentInvoicesToSend.length + ')' }}
+                  </button>
+                  <span v-if="!studentStepCount('NONE') && !studentStepCount('DRAFT') && !studentInvoicesToSend.length && billableStudentRows.length" class="billing-flow-done">
+                    <svg aria-hidden="true"><use href="#icon-check"></use></svg>
+                    Toutes les factures du trimestre sont envoyées.
+                  </span>
+                  <a v-if="studentInvoiceSummaryDocument" class="document-link billing-summary-link" href="#" @click.prevent="downloadDocument(studentInvoiceSummaryDocument)">
+                    <svg aria-hidden="true"><use href="#icon-download"></use></svg>
+                    PDF global
+                  </a>
+                </div>
+                <p v-if="studentInvoicesToSend.length && can('BILLING_PRINT')" class="billing-flow-note">Transmettez le PDF global au service de facturation, puis marquez les factures validées comme envoyées.</p>
+              </section>
             </div>
-            <p v-if="can('BILLING_PRINT') && studentInvoiceDocuments.length" class="muted">Après transmission du PDF global au service de facturation, vous pouvez marquer toutes les factures individuelles validées comme envoyées.</p>
-            <p v-if="preparedStudentInvoices" class="success-note">{{ studentInvoiceDocuments.length }} brouillons disponibles pour {{ selectedTerm.name }} {{ state.settings.year }}. Vous pouvez les régénérer jusqu’à leur validation définitive.</p>
-            <div class="attendance-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Élève</th>
-                    <th class="num">Cours</th>
-                    <th class="num">Cotisation</th>
-                    <th class="num">Total</th>
-                    <th>Document</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in billableStudentRows" :key="row.musician.id">
-                    <td><strong>{{ fullName(row.musician) }}</strong></td>
-                    <td class="num">{{ billingMoney(row.courseDue) }}</td>
-                    <td class="num">{{ billingMoney(row.groupFee) }}</td>
-                    <td class="num">{{ billingMoney(row.totalDue) }}</td>
-                    <td>
-                      <span v-if="documentForMusician(row.musician.id)" class="document-cell">
-                        <span :class="['doc-pill', documentForMusician(row.musician.id).status.toLowerCase()]">{{ documentStatusLabel(documentForMusician(row.musician.id).status) }}</span>
-                        <a v-if="documentForMusician(row.musician.id).fileName" class="document-link" href="#" @click.prevent="downloadDocument(documentForMusician(row.musician.id))">PDF</a>
-                        <span v-else class="muted">à régénérer</span>
+
+            <section class="repertoire-card billing-students" aria-label="Factures élèves">
+              <div class="billing-toolbar">
+                <input v-model="billingStudentSearch" class="search" type="search" placeholder="Rechercher un élève" aria-label="Rechercher un élève" />
+                <div class="toggle-chips" role="group" aria-label="Filtrer par étape">
+                  <button type="button" class="toggle-chip" :aria-pressed="billingStudentFilter === 'all' ? 'true' : 'false'" @click="billingStudentFilter = 'all'">Toutes<small>{{ studentInvoiceItems.length }}</small></button>
+                  <button
+                    v-for="step in studentInvoiceSteps"
+                    :key="step.key"
+                    type="button"
+                    class="toggle-chip"
+                    :aria-pressed="billingStudentFilter === step.key ? 'true' : 'false'"
+                    @click="billingStudentFilter = step.key"
+                  >{{ step.label }}<small>{{ step.count }}</small></button>
+                </div>
+              </div>
+              <div class="invoice-row invoice-row-head" aria-hidden="true">
+                <span></span>
+                <span>Élève</span>
+                <span>Facture</span>
+                <span class="num">Total</span>
+                <span></span>
+              </div>
+              <ul v-if="filteredStudentInvoiceItems.length" class="billing-list">
+                <li v-for="item in filteredStudentInvoiceItems" :key="item.musician.id">
+                  <div class="invoice-row">
+                    <span class="person-avatar" aria-hidden="true">{{ personInitials(item.musician) }}</span>
+                    <span class="billing-name">
+                      <strong>{{ fullName(item.musician) }}</strong>
+                      <small>Cours {{ billingMoney(item.courseDue) }}<template v-if="item.groupFee"> · cotisation {{ billingMoney(item.groupFee) }}</template></small>
+                    </span>
+                    <span class="billing-status">
+                      <span v-if="item.step !== 'NONE'" :class="['doc-pill', item.document.status.toLowerCase()]">{{ documentStatusLabel(item.document.status) }}</span>
+                      <span v-else class="muted">{{ item.document ? documentStatusLabel(item.document.status) + ' · à régénérer' : 'Non générée' }}</span>
+                      <small v-if="item.document?.documentNumber && item.step !== 'NONE' && item.step !== 'DRAFT'">{{ item.document.documentNumber }}</small>
+                    </span>
+                    <span class="billing-amount num">{{ billingMoney(item.totalDue) }}</span>
+                    <span class="billing-actions">
+                      <a v-if="item.document?.fileName && item.step !== 'NONE'" class="icon-pill" href="#" :aria-label="'PDF de la facture de ' + fullName(item.musician)" :title="'Télécharger le PDF'" @click.prevent="downloadDocument(item.document)">PDF</a>
+                      <template v-if="can('BILLING_PRINT') && !yearClosed">
+                        <button v-if="item.step === 'GENERATED'" type="button" class="small-button primary" :disabled="markingStudentInvoicesSent" @click="markDocumentSent(item.document)">Marquer envoyée</button>
+                        <button v-if="item.step === 'SENT'" type="button" class="small-button" @click="openDocumentReason(item.document, 'correct')">Corriger</button>
+                        <span v-if="item.step === 'GENERATED'" class="billing-row-menu">
+                          <button type="button" class="icon-pill" :aria-expanded="billingRowMenuId === item.document.id ? 'true' : 'false'" aria-label="Autres actions" @click="toggleBillingRowMenu(item.document.id)">
+                            <svg aria-hidden="true"><use href="#icon-more"></use></svg>
+                          </button>
+                          <span v-if="billingRowMenuId === item.document.id" class="row-menu" role="menu">
+                            <button type="button" role="menuitem" @click="openDocumentReason(item.document, 'correct')">Corriger…</button>
+                            <button type="button" role="menuitem" class="danger" @click="openDocumentReason(item.document, 'cancel')">Annuler…</button>
+                          </span>
+                        </span>
+                      </template>
+                    </span>
+                  </div>
+                  <form v-if="item.document && documentReasonForm.documentId === item.document.id" class="reason-form" @submit.prevent="submitDocumentReason(item.document)">
+                    <label :for="'reason-' + item.document.id">{{ documentReasonForm.action === 'cancel' ? 'Motif de l’annulation' : 'Motif de la correction' }}</label>
+                    <input :id="'reason-' + item.document.id" v-model="documentReasonForm.reason" required :placeholder="documentReasonForm.action === 'cancel' ? 'Ex. : facture émise par erreur' : 'Ex. : nombre de cours erroné'" />
+                    <button type="submit" class="small-button primary">{{ documentReasonForm.action === 'cancel' ? 'Annuler la facture' : 'Créer la correction' }}</button>
+                    <button type="button" class="small-button" @click="closeDocumentReason">Fermer</button>
+                    <small>{{ documentReasonForm.action === 'cancel' ? 'Le document validé reste consultable dans l’historique.' : 'L’original est conservé ; un avoir et une facture de remplacement sont créés.' }}</small>
+                  </form>
+                </li>
+              </ul>
+              <p v-else class="empty-state">{{ billableStudentRows.length ? 'Aucune facture à cette étape.' : 'Aucun élève à facturer sur ce trimestre.' }}</p>
+            </section>
+          </template>
+
+          <div v-else class="teacher-billing-grid">
+            <article v-for="section in teacherBillingSections" :key="section.teacher.id" class="repertoire-card teacher-card">
+              <header class="teacher-card-head">
+                <div>
+                  <h2>{{ fullName(section.teacher) }}</h2>
+                  <span>{{ section.teacher.instrument }} · {{ hoursLabel(section.totalHours) }} acquises</span>
+                </div>
+                <div class="teacher-remaining">
+                  <span>Restant à émettre</span>
+                  <strong>{{ billingMoney(section.remainingAmount) }}</strong>
+                </div>
+              </header>
+
+              <div class="teacher-progress" aria-hidden="true">
+                <i class="issued" :style="{ width: teacherProgress(section).issued + '%' }"></i>
+                <i class="remaining" :style="{ width: teacherProgress(section).remaining + '%' }"></i>
+              </div>
+              <dl class="teacher-legend">
+                <div><dt><i class="issued"></i>Déjà émis</dt><dd>{{ billingMoney(section.issuedAmount) }}</dd></div>
+                <div><dt><i class="remaining"></i>Restant</dt><dd>{{ billingMoney(section.remainingAmount) }}</dd></div>
+                <div><dt>Acquis</dt><dd>{{ billingMoney(section.accruedAmount) }}</dd></div>
+                <div v-if="section.pendingAdjustmentAmount || section.adjustments.length"><dt>Régularisations</dt><dd>{{ billingMoney(section.pendingAdjustmentAmount) }}</dd></div>
+              </dl>
+
+              <div v-if="can('BILLING_PRINT')" class="teacher-emit">
+                <template v-if="section.installmentsAvailable">
+                  <label>
+                    Situation n°{{ nextInstallmentNumber(section.teacher.id) }} jusqu’à
+                    <select v-model.number="teacherEndWeeks[section.teacher.id]">
+                      <option v-for="week in weeks" :key="week" :value="week">S{{ week }}</option>
+                    </select>
+                  </label>
+                  <button :class="draftForTeacher(section.teacher.id) ? 'ghost-button' : 'primary-button'" :disabled="yearClosed" @click="prepareTeacherInvoiceRequest(section.teacher.id)">
+                    {{ draftForTeacher(section.teacher.id) ? 'Régénérer' : 'Prévisualiser' }}
+                  </button>
+                  <button v-if="draftForTeacher(section.teacher.id)?.installmentNumber" class="danger-outline-button" :disabled="yearClosed" @click="finalizeTeacherInvoiceRequest(section.teacher.id)">Valider la situation</button>
+                  <a v-if="draftForTeacher(section.teacher.id)?.fileName" class="document-link teacher-draft-link" href="#" @click.prevent="downloadDocument(draftForTeacher(section.teacher.id))">
+                    <svg aria-hidden="true"><use href="#icon-download"></use></svg>
+                    Brouillon
+                  </a>
+                </template>
+                <span v-else class="muted">Trimestre historique : acomptes disponibles au prochain trimestre</span>
+              </div>
+
+              <div v-if="section.adjustments.length" class="teacher-adjustments">
+                <h3>Régularisations en attente</h3>
+                <div v-for="adjustment in section.adjustments" :key="adjustment.id">
+                  <span>{{ adjustment.reason }}</span>
+                  <b>{{ billingMoney(adjustment.amount) }}</b>
+                  <button v-if="can('BILLING_PRINT') && !yearClosed" type="button" class="link-button danger-link" @click="deleteTeacherAdjustment(adjustment)">Supprimer</button>
+                </div>
+              </div>
+
+              <div v-if="finalizedDocumentsForTeacher(section.teacher.id).length || draftForTeacher(section.teacher.id)" class="teacher-timeline">
+                <h3>Situations</h3>
+                <ol>
+                  <li v-for="document in finalizedDocumentsForTeacher(section.teacher.id)" :key="document.id">
+                    <div class="situation-row">
+                      <span class="situation-dot">{{ document.installmentNumber || '·' }}</span>
+                      <span class="situation-period">S{{ document.periodStartWeek || selectedTerm.startWeek }}–S{{ document.periodEndWeek || selectedTerm.endWeek }}</span>
+                      <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span>
+                      <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">{{ document.documentNumber || 'PDF' }}</a>
+                      <span v-if="can('BILLING_PRINT') && !yearClosed" class="situation-actions">
+                        <button v-if="document.status === 'GENERATED'" type="button" class="small-button primary" @click="markDocumentSent(document)">Marquer envoyée</button>
+                        <button v-if="document.status === 'GENERATED'" type="button" class="small-button" @click="openDocumentReason(document, 'cancel')">Annuler…</button>
+                        <button v-if="document.status === 'SENT'" type="button" class="small-button" @click="openDocumentReason(document, 'adjust')">Reporter un écart…</button>
                       </span>
-                      <span v-else class="muted">Non généré</span>
-                      <div v-if="documentForMusician(row.musician.id) && can('BILLING_PRINT')" class="document-row-actions">
-                        <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="markDocumentSent(documentForMusician(row.musician.id))" :disabled="markingStudentInvoicesSent">Marquer envoyé</button>
-                        <button v-if="documentForMusician(row.musician.id).status === 'GENERATED'" @click="cancelFinalDocument(documentForMusician(row.musician.id))">Annuler</button>
-                        <button v-if="['GENERATED', 'SENT'].includes(documentForMusician(row.musician.id).status)" @click="correctFinalDocument(documentForMusician(row.musician.id))">Corriger</button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-          <section v-if="billingTab === 'providers'" class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Demandes de facture prestataires</h2>
-                <span>{{ countLabel(teacherInvoiceRequestDocuments.length || teacherBillingSections.length, 'demande') }}</span>
-              </div>
-              <div class="document-actions">
-                <span class="muted">Prévisualisation et validation par prestataire</span>
-              </div>
-            </div>
-            <div class="teacher-billing-list">
-              <article v-for="section in teacherBillingSections" :key="section.teacher.id" class="teacher-billing-card">
-                <div class="teacher-billing-head">
-                  <div>
-                    <h3>{{ fullName(section.teacher) }}</h3>
-                    <span>{{ section.teacher.instrument }}</span>
-                  </div>
-                  <div class="document-actions">
-                    <label class="week-cutoff">Jusqu’à la semaine
-                      <select v-model.number="teacherEndWeeks[section.teacher.id]">
-                        <option v-for="week in weeks" :key="week" :value="week">S{{ week }}</option>
-                      </select>
-                    </label>
-                    <a v-if="draftForTeacher(section.teacher.id)?.fileName" class="document-link" href="#" @click.prevent="downloadDocument(draftForTeacher(section.teacher.id))">
-                      PDF du brouillon · Situation {{ draftForTeacher(section.teacher.id).installmentNumber || 'à régénérer' }}
-                    </a>
-                    <div v-if="can('BILLING_PRINT')" class="document-actions">
-                      <button
-                        v-if="section.installmentsAvailable"
-                        class="ghost-button"
-                        @click="prepareTeacherInvoiceRequest(section.teacher.id)"
-                      >{{ draftForTeacher(section.teacher.id) ? 'Régénérer le brouillon' : 'Prévisualiser' }}</button>
-                      <button
-                        v-if="draftForTeacher(section.teacher.id)?.installmentNumber"
-                        class="danger-outline-button"
-                        @click="finalizeTeacherInvoiceRequest(section.teacher.id)"
-                      >Valider cette demande</button>
                     </div>
-                    <span v-if="!section.installmentsAvailable" class="muted">Trimestre historique : acomptes disponibles au prochain trimestre</span>
-                  </div>
-                </div>
-                <div class="teacher-financial-metrics">
-                  <div><span>Montant acquis</span><strong>{{ billingMoney(section.accruedAmount) }}</strong></div>
-                  <div><span>Déjà émis</span><strong>{{ billingMoney(section.issuedAmount) }}</strong></div>
-                  <div><span>Régularisations</span><strong>{{ billingMoney(section.pendingAdjustmentAmount) }}</strong></div>
-                  <div class="remaining"><span>Restant à émettre</span><strong>{{ billingMoney(section.remainingAmount) }}</strong></div>
-                </div>
-                <div class="attendance-table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Semaine</th>
-                        <th>Début de semaine</th>
-                        <th class="num">Nombre d'heures</th>
-                        <th class="num">Montant</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="row in section.rows" :key="row.key">
-                        <td><strong>S{{ row.week }}</strong></td>
-                        <td><strong>{{ row.dateLabel }}</strong></td>
-                        <td class="num">{{ row.hours.toFixed(2) }} h</td>
-                        <td class="num">{{ billingMoney(row.totalAmount) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div v-if="section.adjustments.length" class="pending-adjustments">
-                  <strong>Régularisations en attente</strong>
-                  <div v-for="adjustment in section.adjustments" :key="adjustment.id">
-                    <span>{{ adjustment.reason }} · {{ billingMoney(adjustment.amount) }}</span>
-                    <button v-if="can('BILLING_PRINT')" class="ghost-button" @click="deleteTeacherAdjustment(adjustment)">Supprimer</button>
-                  </div>
-                </div>
-                <div v-if="finalizedDocumentsForTeacher(section.teacher.id).length" class="installment-history">
-                  <strong>Historique des situations</strong>
-                  <div v-for="document in finalizedDocumentsForTeacher(section.teacher.id)" :key="document.id" class="installment-row">
-                    <span>Situation n°{{ document.installmentNumber || 'historique' }} · S{{ document.periodStartWeek || selectedTerm.startWeek }}–S{{ document.periodEndWeek || selectedTerm.endWeek }}</span>
-                    <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span>
-                    <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">{{ document.documentNumber }}</a>
-                    <div v-if="can('BILLING_PRINT')" class="document-row-actions">
-                      <button v-if="document.status === 'GENERATED'" @click="markDocumentSent(document)">Marquer envoyé</button>
-                      <button v-if="document.status === 'GENERATED'" @click="cancelFinalDocument(document)">Annuler</button>
-                      <button v-if="document.status === 'SENT'" @click="reportTeacherAdjustment(document)">Reporter un écart</button>
+                    <form v-if="documentReasonForm.documentId === document.id" class="reason-form" @submit.prevent="submitDocumentReason(document)">
+                      <template v-if="documentReasonForm.action === 'adjust'">
+                        <label :for="'amount-' + document.id">Écart (€, signé)</label>
+                        <input :id="'amount-' + document.id" v-model="documentReasonForm.amount" class="reason-amount" inputmode="decimal" required placeholder="-25,00" />
+                      </template>
+                      <label :for="'reason-' + document.id">{{ documentReasonForm.action === 'adjust' ? 'Motif' : 'Motif de l’annulation' }}</label>
+                      <input :id="'reason-' + document.id" v-model="documentReasonForm.reason" required :placeholder="documentReasonForm.action === 'adjust' ? 'Ex. : séance comptée deux fois' : 'Ex. : situation émise par erreur'" />
+                      <button type="submit" class="small-button primary">{{ documentReasonForm.action === 'adjust' ? 'Reporter' : 'Annuler la situation' }}</button>
+                      <button type="button" class="small-button" @click="closeDocumentReason">Fermer</button>
+                      <small v-if="documentReasonForm.action === 'adjust'">L’écart sera repris sur la prochaine situation.</small>
+                    </form>
+                  </li>
+                  <li v-if="draftForTeacher(section.teacher.id)">
+                    <div class="situation-row">
+                      <span class="situation-dot next">{{ draftForTeacher(section.teacher.id).installmentNumber || nextInstallmentNumber(section.teacher.id) }}</span>
+                      <span class="situation-period">S{{ draftForTeacher(section.teacher.id).periodStartWeek || selectedTerm.startWeek }}–S{{ draftForTeacher(section.teacher.id).periodEndWeek || section.endWeek }} · à valider</span>
+                      <span class="doc-pill draft">Brouillon</span>
                     </div>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </section>
-          <section v-if="documentHistory.length" class="panel">
-            <div class="panel-head"><div><h2>Historique des corrections</h2><span>Les originaux et avoirs restent consultables</span></div></div>
-            <div class="document-history-list">
-              <article v-for="document in documentHistory" :key="document.id">
-                <div><strong>{{ document.documentNumber }} <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span></strong><span>{{ document.correctionReason }}</span></div>
-                <a v-if="document.fileName" class="document-link" href="#" @click.prevent="downloadDocument(document)">PDF</a>
-              </article>
-            </div>
+                  </li>
+                </ol>
+              </div>
+
+              <div class="teacher-weeks">
+                <button type="button" class="link-button" :aria-expanded="teacherWeeksOpen[section.teacher.id] ? 'true' : 'false'" @click="teacherWeeksOpen[section.teacher.id] = !teacherWeeksOpen[section.teacher.id]">
+                  Détail par semaine ({{ section.rows.length }})
+                  <svg aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+                </button>
+                <table v-if="teacherWeeksOpen[section.teacher.id]">
+                  <thead>
+                    <tr>
+                      <th>Semaine</th>
+                      <th>Début de semaine</th>
+                      <th class="num">Heures</th>
+                      <th class="num">Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in section.rows" :key="row.key">
+                      <td><strong>S{{ row.week }}</strong></td>
+                      <td>{{ row.dateLabel }}</td>
+                      <td class="num">{{ hoursLabel(row.hours) }}</td>
+                      <td class="num">{{ billingMoney(row.totalAmount) }}</td>
+                    </tr>
+                    <tr v-if="!section.rows.length">
+                      <td colspan="4" class="muted">Aucune séance comptée sur ce trimestre.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            <p v-if="!teacherBillingSections.length" class="empty-state">Aucun prestataire à facturer sur ce trimestre.</p>
+          </div>
+
+          <section v-if="documentHistory.length" class="repertoire-card billing-history">
+            <button type="button" class="billing-history-toggle" :aria-expanded="billingHistoryOpen ? 'true' : 'false'" @click="billingHistoryOpen = !billingHistoryOpen">
+              <span><strong>Historique des corrections</strong> · {{ countLabel(documentHistory.length, 'document') }} · originaux et avoirs consultables</span>
+              <svg aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+            </button>
+            <ul v-if="billingHistoryOpen" class="billing-history-list">
+              <li v-for="document in documentHistory" :key="document.id">
+                <strong>{{ document.documentNumber }}</strong>
+                <span :class="['doc-pill', document.status.toLowerCase()]">{{ documentStatusLabel(document.status) }}</span>
+                <span class="muted">{{ document.correctionReason }}</span>
+                <a v-if="document.fileName" class="icon-pill" href="#" @click.prevent="downloadDocument(document)">PDF</a>
+              </li>
+            </ul>
           </section>
         </section>
 
