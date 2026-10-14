@@ -672,18 +672,31 @@ const app = createApp({
       let title;
       let detail;
       let chip;
+      // Cours : une ligne par élève (créneau partagé : l'un sous l'autre) avec son instrument.
+      let people = [];
+      // Groupe ou atelier : les musiciens, en petit sous le nom.
+      let members = "";
+      let fullMembers = "";
       if (first.kind === "course") {
-        const musicians = group.map((occupation) => musiciansById.value[occupation.item.musicianId]).filter(Boolean);
         const teacher = teachersById.value[first.item.teacherId];
-        title = musicians.map(fullName).join(" · ") || "Cours";
-        detail = group.length > 1 ? `Créneau partagé · ${teacher ? fullName(teacher) : ""}` : [first.item.instrument, teacher ? fullName(teacher) : ""].filter(Boolean).join(" · ");
+        people = group
+          .map((occupation) => ({ musician: musiciansById.value[occupation.item.musicianId], instrument: occupation.item.instrument }))
+          .filter((person) => person.musician)
+          .map((person) => ({ id: person.musician.id, name: fullName(person.musician), instrument: person.instrument || "" }));
+        title = people.map((person) => person.name).join(" · ") || "Cours";
+        detail = [
+          group.length > 1 ? "Créneau partagé" : first.item.instrument,
+          teacher ? fullName(teacher) : "",
+        ].filter(Boolean).join(" · ");
         chip = "Cours";
       } else {
         const teacher = teachersById.value[first.item.teacherId];
         title = first.item.name;
-        detail = first.kind === "workshop"
-          ? (teacher ? fullName(teacher) : "Atelier")
-          : countLabel(uniqueIds(first.item.memberIds).length, "musicien");
+        detail = first.kind === "workshop" && teacher ? fullName(teacher) : "";
+        const bandMusicians = sortByName(uniqueIds(first.item.memberIds).map((id) => musiciansById.value[id]).filter(Boolean));
+        // « Prénom N. » dans le bloc pour en faire tenir davantage ; noms complets dans la description.
+        members = bandMusicians.map((musician) => [musician.firstName, musician.lastName ? `${musician.lastName[0]}.` : ""].filter(Boolean).join(" ")).join(" · ");
+        fullMembers = bandMusicians.map(fullName).join(", ");
         chip = first.kind === "workshop" ? "Atelier" : "Groupe";
       }
       return {
@@ -692,11 +705,15 @@ const app = createApp({
         row: agendaRow(first.start),
         span: Math.max(1, Math.ceil(first.minutes / 15)),
         compact: first.minutes <= 30,
-        timeLabel,
         title,
         detail,
         chip,
-        description: `${chip} · ${day} ${timeLabel} · ${title}${detail ? ` · ${detail}` : ""}`,
+        people,
+        members,
+        shared: people.length > 1,
+        // Lignes de musiciens selon la hauteur du bloc (un quart d'heure ≈ une ligne), moins le nom et le professeur.
+        memberLines: Math.max(1, Math.ceil(first.minutes / 15) - (detail ? 2 : 1)),
+        description: `${chip} · ${day} ${timeLabel} · ${title}${detail ? ` · ${detail}` : ""}${fullMembers ? ` · ${fullMembers}` : ""}`,
         dimmed: Boolean(slotsTeacherFilter.value) && !teacherIds.includes(slotsTeacherFilter.value),
       };
     }
@@ -5497,14 +5514,23 @@ const app = createApp({
                   <article
                     v-for="block in day.blocks"
                     :key="block.key"
-                    :class="['agenda-block', block.kind, { compact: block.compact, dimmed: block.dimmed }]"
-                    :style="{ gridRow: block.row + ' / span ' + block.span, gridColumn: dayIndex + 2 }"
+                    :class="['agenda-block', block.kind, { compact: block.compact, shared: block.shared, dimmed: block.dimmed }]"
+                    :style="{ gridRow: block.row + ' / span ' + block.span, gridColumn: dayIndex + 2, '--member-lines': block.memberLines }"
                     :title="block.description"
                     :aria-label="block.description"
                   >
-                    <strong>{{ block.title }}</strong>
-                    <span class="agenda-block-meta"><span class="agenda-block-time">{{ block.timeLabel }}</span><template v-if="block.detail"> · {{ block.detail }}</template></span>
-                    <em v-if="!block.compact" class="agenda-chip">{{ block.chip }}</em>
+                    <template v-if="block.kind === 'course'">
+                      <span v-for="person in block.people" :key="person.id" class="agenda-person">
+                        <strong>{{ person.name }}</strong>
+                        <small v-if="person.instrument">{{ person.instrument }}</small>
+                      </span>
+                    </template>
+                    <template v-else>
+                      <strong>{{ block.title }}</strong>
+                      <span v-if="block.detail" class="agenda-block-meta">{{ block.detail }}</span>
+                      <span v-if="block.members" class="agenda-members">{{ block.members }}</span>
+                      <em class="agenda-chip">{{ block.chip }}</em>
+                    </template>
                   </article>
                 </template>
               </div>
