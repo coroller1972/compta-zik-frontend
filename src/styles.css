@@ -4202,9 +4202,49 @@ td strong {
   white-space: nowrap;
 }
 
-.agenda-block-time {
-  font-family: var(--font-mono);
+/* Cours : nom puis instrument dessous ; créneau partagé : un élève par ligne, instrument à côté. */
+.agenda-person {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.agenda-person small,
+.agenda-members {
+  overflow: hidden;
+  color: var(--ink-muted);
   font-size: 11px;
+  line-height: 1.25;
+}
+
+.agenda-person small {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-block.shared .agenda-person {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* Le nom se tronque avant l'instrument, qui garde jusqu'à 45 % de la ligne. */
+.agenda-block.shared .agenda-person strong {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.agenda-block.shared .agenda-person small {
+  max-width: 45%;
+  flex: 0 0 auto;
+}
+
+/* Groupes et ateliers : les musiciens en petit, sur autant de lignes que le bloc le permet. */
+.agenda-members {
+  display: -webkit-box;
+  margin-top: 2px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--member-lines, 3);
 }
 
 .agenda-chip {
