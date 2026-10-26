@@ -6946,3 +6946,234 @@ button.expense-row.selected:hover {
     text-align: left;
   }
 }
+
+/* Correction de présences après facturation (partition.md §6 « Présences ») */
+.att-button.correctable {
+  cursor: pointer;
+}
+
+.att-button.correctable:hover:not(:disabled) .att-lock {
+  color: var(--brass-ink);
+}
+
+.day-card-correct {
+  min-height: 0;
+  padding: 0;
+  font-size: 13px;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.correction-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow-overlay);
+}
+
+.correction-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.correction-head .eyebrow {
+  display: block;
+  margin: 0;
+}
+
+.correction-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1.05;
+}
+
+.correction-head small {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.correction-head .icon-pill svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.correction-intro,
+.correction-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.correction-note {
+  color: var(--brass-tint-ink);
+}
+
+.correction-weeks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.correction-weeks legend {
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.correction-week {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.correction-week input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--petrol);
+}
+
+.correction-week.blocked {
+  background: var(--card-alt);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+.correction-week-doc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.correction-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  gap: 12px;
+}
+
+.correction-field {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.correction-preview {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--brass-tint);
+  color: var(--brass-tint-ink);
+  font-size: 13px;
+}
+
+.correction-impact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.correction-impact strong {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.correction-done {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--petrol-tint);
+  color: var(--petrol-tint-ink);
+  font-size: 13px;
+}
+
+.correction-done svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.correction-done div {
+  display: grid;
+  gap: 4px;
+}
+
+.billing-flow-mismatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brass-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.billing-flow-mismatch svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.billing-status .billing-mismatch {
+  color: var(--brass-ink);
+  font-family: var(--font-ui);
+  font-weight: 700;
+}
+
+@media screen and (max-width: 760px) {
+  .correction-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .correction-week {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .correction-week-doc {
+    grid-column: 2;
+  }
+}

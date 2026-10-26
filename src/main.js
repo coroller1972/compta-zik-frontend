@@ -1052,6 +1052,163 @@ const app = createApp({
       .sort((a, b) => a.band.name.localeCompare(b.band.name, "fr")));
 
     const ATTENDANCE_STATUS_WORDS = { PRESENT: "présent", ABSENT: "absent", CANCELLED: "annulé", UNRECORDED: "non renseigné" };
+
+    // Correction de présences déjà rémunérées (situation prestataire envoyée) : dialogue avec aperçu calculé par le backend.
+    const attendanceCorrection = reactive({
+      open: false,
+      entityType: "",
+      entityId: "",
+      name: "",
+      detail: "",
+      weeks: [],
+      status: "ABSENT",
+      reason: "",
+      preview: [],
+      previewError: "",
+      previewLoading: false,
+      saving: false,
+      error: "",
+      done: null,
+    });
+    let attendanceCorrectionPreviewTimer = null;
+
+    const canCorrectAfterBilling = computed(() => can("PRESENCE_WRITE") && can("BILLING_PRINT") && !yearClosed.value);
+
+    /** « correct » : situation envoyée, à corriger après facturation ; « cancel » : situation seulement validée, à annuler. */
+    function lockedAttendanceAction(entityType, entityId, week) {
+      const attendance = attendanceFor(entityType, entityId, week);
+      if (!attendance?.billingLocked || !canCorrectAfterBilling.value) return null;
+      if (attendance.billingDocumentStatus === "SENT") return attendance.status === "PRESENT" ? "correct" : null;
+      return attendance.billingDocumentStatus === "GENERATED" ? "cancel" : null;
+    }
+
+    function onAttendanceCell(row, week) {
+      if (isAttendanceLocked(row.entityType, row.entityId, week)) {
+        if (lockedAttendanceAction(row.entityType, row.entityId, week)) openAttendanceCorrection(row, week);
+        return;
+      }
+      toggleAttendance(row.entityType, row.entityId, week);
+    }
+
+    const attendanceCorrectionSelection = computed(() => attendanceCorrection.weeks.filter((item) => item.selected && item.correctable));
+
+    function openAttendanceCorrection(row, week) {
+      const candidates = weeks.value
+        .map((candidateWeek) => ({ week: candidateWeek, attendance: attendanceFor(row.entityType, row.entityId, candidateWeek) }))
+        .filter(({ attendance }) => attendance?.billingLocked && attendance.status === "PRESENT")
+        .map(({ week: candidateWeek, attendance }) => ({
+          week: candidateWeek,
+          id: attendance.id,
+          version: attendance.version,
+          date: attendanceDateLabel(row.entityType, row.entityId, candidateWeek),
+          documentNumber: attendance.billingDocumentNumber || "",
+          documentStatus: attendance.billingDocumentStatus || "",
+          correctable: attendance.billingDocumentStatus === "SENT",
+          selected: candidateWeek === week && attendance.billingDocumentStatus === "SENT",
+        }));
+      Object.assign(attendanceCorrection, {
+        open: true,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        name: row.name,
+        detail: row.detail || "",
+        weeks: candidates,
+        status: "ABSENT",
+        reason: "",
+        preview: [],
+        previewError: "",
+        error: "",
+        done: null,
+      });
+      refreshAttendanceCorrectionPreview();
+      nextTick(() => (document.querySelector(".correction-week input:checked:not(:disabled)") || document.querySelector(".correction-dialog .correction-field input"))?.focus());
+    }
+
+    function closeAttendanceCorrection() {
+      attendanceCorrection.open = false;
+      clearTimeout(attendanceCorrectionPreviewTimer);
+    }
+
+    function attendanceCorrectionPayload(dryRun) {
+      return {
+        attendance: attendanceCorrectionSelection.value.map((item) => ({ id: item.id, version: item.version })),
+        status: attendanceCorrection.status,
+        reason: attendanceCorrection.reason.trim() || "Aperçu",
+        dryRun,
+      };
+    }
+
+    async function postAttendanceCorrection(dryRun) {
+      const response = await apiFetch("attendance/post-billing-corrections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(attendanceCorrectionPayload(dryRun)),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw Object.assign(new Error(body.detail || body.message || `HTTP ${response.status}`), { status: response.status });
+      return body;
+    }
+
+    // Aperçu : le montant régularisé vient du backend (montants versés figés dans la situation d'origine).
+    function refreshAttendanceCorrectionPreview() {
+      clearTimeout(attendanceCorrectionPreviewTimer);
+      attendanceCorrection.previewError = "";
+      if (!attendanceCorrectionSelection.value.length) {
+        attendanceCorrection.preview = [];
+        return;
+      }
+      attendanceCorrectionPreviewTimer = setTimeout(async () => {
+        attendanceCorrection.previewLoading = true;
+        try {
+          attendanceCorrection.preview = (await postAttendanceCorrection(true)).adjustments || [];
+        } catch (error) {
+          attendanceCorrection.preview = [];
+          attendanceCorrection.previewError = error.message;
+        } finally {
+          attendanceCorrection.previewLoading = false;
+        }
+      }, 200);
+    }
+
+    async function submitAttendanceCorrection() {
+      if (!canCorrectAfterBilling.value || attendanceCorrection.saving) return;
+      if (!attendanceCorrectionSelection.value.length) return;
+      if (attendanceCorrection.reason.trim().length < 3) {
+        attendanceCorrection.error = "Indiquez le motif de la correction (3 caractères au moins).";
+        return;
+      }
+      attendanceCorrection.saving = true;
+      attendanceCorrection.error = "";
+      try {
+        const result = await postAttendanceCorrection(false);
+        const total = (result.adjustments || []).reduce((sum, adjustment) => sum + Number(adjustment.amount || 0), 0);
+        attendanceCorrection.done = { count: result.attendance?.length || 0, adjustments: result.adjustments || [] };
+        showToast(`${countLabel(result.attendance?.length || 0, "présence corrigée", "présences corrigées")} · ${billingMoney(total)} reportés sur la prochaine situation`, "success");
+        await Promise.all([loadTermAttendance(state.settings.year, selectedTerm.value.id), loadBillingSummary()]);
+      } catch (error) {
+        attendanceCorrection.error = error.status === 409
+          ? `${error.message} Les présences ont été rechargées.`
+          : error.message;
+        if (error.status === 409) await loadTermAttendance(state.settings.year, selectedTerm.value.id);
+      } finally {
+        attendanceCorrection.saving = false;
+      }
+    }
+
+    function openStudentInvoicesAfterCorrection() {
+      closeAttendanceCorrection();
+      openBilling("students");
+    }
+
+    watch(
+      () => [attendanceCorrection.status, attendanceCorrection.weeks.map((item) => item.selected).join(",")],
+      () => {
+        if (attendanceCorrection.open && !attendanceCorrection.done) refreshAttendanceCorrectionPreview();
+      },
+    );
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && attendanceCorrection.open) closeAttendanceCorrection();
+    });
     const TERM_DAY_FORMAT = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" });
 
     function weekdayShort(weekday) {
@@ -1689,7 +1846,12 @@ const app = createApp({
 
     const studentInvoiceItems = computed(() => billableStudentRows.value.map((row) => {
       const document = documentForMusician(row.musician.id);
-      return { ...row, document, step: studentInvoiceStep(document) };
+      const step = studentInvoiceStep(document);
+      // Facture émise qui ne correspond plus aux présences (ex. présences corrigées après facturation).
+      const billedAmount = ["GENERATED", "SENT"].includes(step) ? Number(document.totalAmount) : null;
+      const mismatch = billedAmount !== null && Number.isFinite(billedAmount)
+        && Math.round(billedAmount * 100) !== Math.round(Number(row.totalDue) * 100);
+      return { ...row, document, step, billedAmount, mismatch };
     }));
 
     const studentInvoiceSteps = computed(() => {
@@ -1703,6 +1865,8 @@ const app = createApp({
         state: step.key === current ? "now" : step.key === "SENT" && step.count > 0 ? "done" : "",
       }));
     });
+
+    const studentInvoiceMismatchCount = computed(() => studentInvoiceItems.value.filter((item) => item.mismatch).length);
 
     const studentStepCount = (key) => studentInvoiceSteps.value.find((step) => step.key === key)?.count || 0;
 
@@ -4480,6 +4644,15 @@ const app = createApp({
       attendanceDateLabel,
       isAttendanceSaving,
       toggleAttendance,
+      attendanceCorrection,
+      attendanceCorrectionSelection,
+      canCorrectAfterBilling,
+      lockedAttendanceAction,
+      onAttendanceCell,
+      openAttendanceCorrection,
+      closeAttendanceCorrection,
+      submitAttendanceCorrection,
+      openStudentInvoicesAfterCorrection,
       isHolidayWeek,
       addHolidayWeek,
       removeHolidayWeek,
@@ -4535,6 +4708,7 @@ const app = createApp({
       studentInvoiceItems,
       studentInvoiceSteps,
       studentStepCount,
+      studentInvoiceMismatchCount,
       filteredStudentInvoiceItems,
       toggleBillingRowMenu,
       openDocumentReason,
@@ -5272,11 +5446,12 @@ const app = createApp({
                     >
                       <button
                         type="button"
-                        :class="['att-button', { locked: isAttendanceLocked(row.entityType, row.entityId, week), saving: isAttendanceSaving(row.entityType, row.entityId, week) }]"
-                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving(row.entityType, row.entityId, week) || isAttendanceLocked(row.entityType, row.entityId, week)"
-                        :aria-label="attendanceCellLabel(row, week)"
-                        :title="attendanceCellTitle(row, week)"
-                        @click="toggleAttendance(row.entityType, row.entityId, week)"
+                        :class="['att-button', { locked: isAttendanceLocked(row.entityType, row.entityId, week), correctable: Boolean(lockedAttendanceAction(row.entityType, row.entityId, week)), saving: isAttendanceSaving(row.entityType, row.entityId, week) }]"
+                        :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving(row.entityType, row.entityId, week) || (isAttendanceLocked(row.entityType, row.entityId, week) && !lockedAttendanceAction(row.entityType, row.entityId, week))"
+                        :aria-label="attendanceCellLabel(row, week) + ({ correct: ', corriger après facturation', cancel: ', situation à annuler pour corriger' }[lockedAttendanceAction(row.entityType, row.entityId, week)] || '')"
+                        :aria-haspopup="lockedAttendanceAction(row.entityType, row.entityId, week) ? 'dialog' : undefined"
+                        :title="attendanceCellTitle(row, week) + ({ correct: ' · cliquer pour corriger', cancel: ' · situation validée : l’annuler pour corriger' }[lockedAttendanceAction(row.entityType, row.entityId, week)] || '')"
+                        @click="onAttendanceCell(row, week)"
                       >
                         <span :class="['att-glyph', attendanceStatus(row.entityType, row.entityId, week).toLowerCase()]" aria-hidden="true"></span>
                         <svg v-if="isAttendanceLocked(row.entityType, row.entityId, week)" class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>
@@ -5357,6 +5532,13 @@ const app = createApp({
                 <span v-if="isAttendanceLocked(session.entityType, session.entityId, dayEntryWeekValue)" class="day-card-pill locked" :title="attendanceTitle(session.entityType, session.entityId, dayEntryWeekValue)">
                   <svg class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>Facturée
                 </span>
+                <button
+                  v-if="lockedAttendanceAction(session.entityType, session.entityId, dayEntryWeekValue)"
+                  type="button"
+                  class="link-button day-card-correct"
+                  aria-haspopup="dialog"
+                  @click="openAttendanceCorrection(session, dayEntryWeekValue)"
+                >Corriger…</button>
                 <span v-else-if="attendanceStatus(session.entityType, session.entityId, dayEntryWeekValue) === 'UNRECORDED'" class="day-card-pill">À renseigner</span>
               </div>
               <div class="day-card-choices" role="group" :aria-label="'Présence : ' + session.name">
@@ -6068,7 +6250,11 @@ const app = createApp({
                   <button v-if="studentInvoicesToSend.length" :class="studentStepCount('NONE') || studentStepCount('DRAFT') ? 'ghost-button' : 'primary-button'" :disabled="markingStudentInvoicesSent || yearClosed" @click="markAllStudentInvoicesSent">
                     {{ markingStudentInvoicesSent ? 'Marquage en cours…' : 'Marquer envoyées (' + studentInvoicesToSend.length + ')' }}
                   </button>
-                  <span v-if="!studentStepCount('NONE') && !studentStepCount('DRAFT') && !studentInvoicesToSend.length && billableStudentRows.length" class="billing-flow-done">
+                  <span v-if="studentInvoiceMismatchCount" class="billing-flow-mismatch">
+                    <svg aria-hidden="true"><use href="#icon-warning"></use></svg>
+                    {{ countLabel(studentInvoiceMismatchCount, 'facture ne correspond', 'factures ne correspondent') }} plus aux présences : à corriger.
+                  </span>
+                  <span v-else-if="!studentStepCount('NONE') && !studentStepCount('DRAFT') && !studentInvoicesToSend.length && billableStudentRows.length" class="billing-flow-done">
                     <svg aria-hidden="true"><use href="#icon-check"></use></svg>
                     Toutes les factures du trimestre sont envoyées.
                   </span>
@@ -6115,19 +6301,22 @@ const app = createApp({
                       <span v-if="item.step !== 'NONE'" :class="['doc-pill', item.document.status.toLowerCase()]">{{ documentStatusLabel(item.document.status) }}</span>
                       <span v-else class="muted">{{ item.document ? documentStatusLabel(item.document.status) + ' · à régénérer' : 'Non générée' }}</span>
                       <small v-if="item.document?.documentNumber && item.step !== 'NONE' && item.step !== 'DRAFT'">{{ item.document.documentNumber }}</small>
+                      <small v-if="item.mismatch" class="billing-mismatch">Écart : facturé {{ billingMoney(item.billedAmount) }}</small>
                     </span>
                     <span class="billing-amount num">{{ billingMoney(item.totalDue) }}</span>
                     <span class="billing-actions">
                       <a v-if="item.document?.fileName && item.step !== 'NONE'" class="icon-pill" href="#" :aria-label="'PDF de la facture de ' + fullName(item.musician)" :title="'Télécharger le PDF'" @click.prevent="downloadDocument(item.document)">PDF</a>
                       <template v-if="can('BILLING_PRINT') && !yearClosed">
-                        <button v-if="item.step === 'GENERATED'" type="button" class="small-button primary" :disabled="markingStudentInvoicesSent" @click="markDocumentSent(item.document)">Marquer envoyée</button>
-                        <button v-if="item.step === 'SENT'" type="button" class="small-button" @click="openDocumentReason(item.document, 'correct')">Corriger</button>
+                        <button v-if="item.mismatch" type="button" class="small-button primary" @click="openDocumentReason(item.document, 'correct')">Corriger</button>
+                        <button v-else-if="item.step === 'GENERATED'" type="button" class="small-button primary" :disabled="markingStudentInvoicesSent" @click="markDocumentSent(item.document)">Marquer envoyée</button>
+                        <button v-else-if="item.step === 'SENT'" type="button" class="small-button" @click="openDocumentReason(item.document, 'correct')">Corriger</button>
                         <span v-if="item.step === 'GENERATED'" class="billing-row-menu">
                           <button type="button" class="icon-pill" :aria-expanded="billingRowMenuId === item.document.id ? 'true' : 'false'" aria-label="Autres actions" @click="toggleBillingRowMenu(item.document.id)">
                             <svg aria-hidden="true"><use href="#icon-more"></use></svg>
                           </button>
                           <span v-if="billingRowMenuId === item.document.id" class="row-menu" role="menu">
-                            <button type="button" role="menuitem" @click="openDocumentReason(item.document, 'correct')">Corriger…</button>
+                            <button v-if="item.mismatch" type="button" role="menuitem" :disabled="markingStudentInvoicesSent" @click="billingRowMenuId = ''; markDocumentSent(item.document)">Marquer envoyée</button>
+                            <button v-else type="button" role="menuitem" @click="openDocumentReason(item.document, 'correct')">Corriger…</button>
                             <button type="button" role="menuitem" class="danger" @click="openDocumentReason(item.document, 'cancel')">Annuler…</button>
                           </span>
                         </span>
@@ -7015,6 +7204,98 @@ const app = createApp({
             </div>
           </section>
         </section>
+        <div v-if="attendanceCorrection.open" class="dialog-backdrop" @click.self="closeAttendanceCorrection">
+          <section class="correction-dialog" role="dialog" aria-modal="true" aria-labelledby="correction-title">
+            <header class="correction-head">
+              <div>
+                <span class="eyebrow">Correction après facturation</span>
+                <h2 id="correction-title">{{ attendanceCorrection.name }}</h2>
+                <small v-if="attendanceCorrection.detail">{{ attendanceCorrection.detail }}</small>
+              </div>
+              <button type="button" class="icon-pill" aria-label="Fermer" @click="closeAttendanceCorrection">
+                <svg aria-hidden="true"><use href="#icon-x"></use></svg>
+              </button>
+            </header>
+
+            <template v-if="!attendanceCorrection.done">
+              <p class="correction-intro">Ces séances ont déjà été rémunérées au professeur. La correction les retire de sa situation et déduit le montant versé de sa prochaine situation ; la facture de l’élève se corrige ensuite dans Facturation.</p>
+
+              <fieldset class="correction-weeks">
+                <legend>Séances à corriger</legend>
+                <label v-for="item in attendanceCorrection.weeks" :key="item.id" :class="['correction-week', { blocked: !item.correctable }]">
+                  <input type="checkbox" v-model="item.selected" :disabled="!item.correctable" />
+                  <span class="correction-week-label"><strong>S{{ item.week }}</strong> {{ item.date }}</span>
+                  <span class="correction-week-doc">
+                    {{ item.documentNumber }}
+                    <span :class="['doc-pill', item.documentStatus.toLowerCase()]">{{ documentStatusLabel(item.documentStatus) }}</span>
+                  </span>
+                </label>
+                <p v-if="attendanceCorrection.weeks.some(item => !item.correctable)" class="correction-note">
+                  Une situation seulement validée (non envoyée) n’a pas encore été payée : annulez-la dans Facturation → Prestataires, corrigez les présences, puis émettez-la de nouveau.
+                </p>
+              </fieldset>
+
+              <div class="correction-fields">
+                <div class="correction-field">
+                  <span>Nouveau statut</span>
+                  <div class="segmented sheet-segmented" role="group" aria-label="Nouveau statut">
+                    <button type="button" :aria-pressed="attendanceCorrection.status === 'ABSENT' ? 'true' : 'false'" @click="attendanceCorrection.status = 'ABSENT'">Absent</button>
+                    <button type="button" :aria-pressed="attendanceCorrection.status === 'CANCELLED' ? 'true' : 'false'" @click="attendanceCorrection.status = 'CANCELLED'">Annulé</button>
+                  </div>
+                </div>
+                <label class="correction-field">
+                  Motif
+                  <input v-model="attendanceCorrection.reason" maxlength="1000" placeholder="Ex. : réclamation de l’élève, émargement vérifié" @keydown.enter.prevent="submitAttendanceCorrection" />
+                </label>
+              </div>
+
+              <div class="correction-preview" aria-live="polite">
+                <template v-if="!attendanceCorrectionSelection.length">
+                  <span class="muted">Cochez au moins une séance.</span>
+                </template>
+                <template v-else-if="attendanceCorrection.previewLoading">
+                  <span class="muted">Calcul de la régularisation…</span>
+                </template>
+                <template v-else-if="attendanceCorrection.previewError">
+                  <span class="form-warning">{{ attendanceCorrection.previewError }}</span>
+                </template>
+                <template v-else>
+                  <div v-for="adjustment in attendanceCorrection.preview" :key="adjustment.sourceDocumentId" class="correction-impact">
+                    <strong>{{ billingMoney(adjustment.amount) }}</strong>
+                    <span>déduits de la prochaine situation de {{ teachersById[adjustment.teacherId] ? fullName(teachersById[adjustment.teacherId]) : 'ce professeur' }} (versés par {{ adjustment.sourceDocumentNumber }})</span>
+                  </div>
+                  <div v-if="attendanceCorrection.entityType === 'individualCourse'" class="correction-impact">
+                    <strong>{{ countLabel(attendanceCorrectionSelection.length, 'cours', 'cours') }} en moins</strong>
+                    <span>sur la facture de l’élève, à corriger ensuite</span>
+                  </div>
+                </template>
+              </div>
+
+              <p v-if="attendanceCorrection.error" class="form-warning">{{ attendanceCorrection.error }}</p>
+              <div class="sheet-actions">
+                <button type="button" class="primary-button" :disabled="!attendanceCorrectionSelection.length || attendanceCorrection.saving" @click="submitAttendanceCorrection">
+                  {{ attendanceCorrection.saving ? 'Correction…' : 'Corriger ' + countLabel(attendanceCorrectionSelection.length, 'séance') }}
+                </button>
+                <button type="button" class="ghost-button" @click="closeAttendanceCorrection">Annuler</button>
+              </div>
+            </template>
+
+            <template v-else>
+              <div class="correction-done">
+                <svg aria-hidden="true"><use href="#icon-check"></use></svg>
+                <div>
+                  <strong>{{ countLabel(attendanceCorrection.done.count, 'présence corrigée', 'présences corrigées') }}</strong>
+                  <span v-for="adjustment in attendanceCorrection.done.adjustments" :key="adjustment.id">{{ billingMoney(adjustment.amount) }} en attente sur la prochaine situation de {{ teachersById[adjustment.teacherId] ? fullName(teachersById[adjustment.teacherId]) : 'ce professeur' }}.</span>
+                </div>
+              </div>
+              <p v-if="attendanceCorrection.entityType === 'individualCourse'" class="correction-intro">Étape suivante : dans Facturation, la facture de l’élève apparaît en écart. « Corriger » crée un avoir et une facture de remplacement, recalculée sur les présences corrigées.</p>
+              <div class="sheet-actions">
+                <button v-if="attendanceCorrection.entityType === 'individualCourse' && canAny(['BILLING_READ', 'BILLING_PRINT'])" type="button" class="primary-button" @click="openStudentInvoicesAfterCorrection">Voir la facture de l’élève</button>
+                <button type="button" class="ghost-button" @click="closeAttendanceCorrection">Fermer</button>
+              </div>
+            </template>
+          </section>
+        </div>
         <div class="toast-stack" aria-live="polite">
           <div v-for="toast in toasts" :key="toast.id" :class="['toast', toast.type]">
             <span class="toast-badge" aria-hidden="true"><svg><use :href="toast.type === 'success' ? '#icon-check' : toast.type === 'error' ? '#icon-x' : '#icon-warning'"></use></svg></span>
