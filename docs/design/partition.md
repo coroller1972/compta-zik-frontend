@@ -206,6 +206,7 @@ Fond `--paper-deep`, bordure droite `--line`, padding 24 × 16. De haut en bas :
 - Groupes de lignes par professeur puis « Ateliers », avec un en-tête `--card-alt` (nom en display 21 px).
 - Pied de grille `--card-alt` : récapitulatif de la semaine courante + total du trimestre en display.
 - La colonne Total et le total du pied comptent des **séances**, pas des euros : le backend ne fournit pas de montant par ligne et le frontend ne calcule aucun montant (les montants des maquettes sont illustratifs).
+- Présence rémunérée (cadenas) : avec les droits présences + émission, un clic ouvre le dialogue « Correction après facturation » (aussi « Corriger… » dans la saisie par jour). Il liste les séances rémunérées de la ligne (cases à cocher ; une situation seulement validée est grisée, avec la consigne de l'annuler), le nouveau statut (Absent / Annulé, segmenté), un motif obligatoire, et un aperçu `--brass-tint` calculé par le backend : montant déduit de la prochaine situation du professeur et cours en moins pour l'élève. Après validation, un encart `--petrol-tint` confirme et propose « Voir la facture de l'élève ».
 
 ### Créneaux
 
@@ -256,6 +257,7 @@ Même principe pour les deux écrans : une barre d'outils (recherche en pilule, 
   - carte « Circuit des factures » : quatre étapes cliquables (À générer → Brouillons → Validées → Envoyées) avec leur nombre en mono ; l'étape à traiter est en laiton (`--brass-tint`), les envoyées en pétrole léger. Seuls les boutons utiles à l'étape en cours s'affichent (prévisualiser ou régénérer, valider définitivement, marquer envoyées), avec le PDF global ;
   - liste filtrable par étape et par nom : avatar, élève et détail des montants en mono, pastille de statut et numéro, total, puis le PDF et **une** action principale (« Marquer envoyée » pleine, « Corriger » en contour) ; les actions rares (corriger, annuler une facture validée) sont dans le menu « ••• ».
 - Prestataires : une carte par prestataire avec le restant à émettre en display, une barre émis (`--petrol`) / restant (`--brass-bright`), la légende des montants, un encart d'émission « Situation n°N jusqu'à Sxx » (prévisualiser, régénérer, valider), les régularisations en attente, la frise des situations (pastille numérotée, pointillée laiton pour le brouillon) et le détail par semaine replié.
+- Facture émise qui ne correspond plus aux présences (ex. après une correction de présences) : mention laiton « Écart : facturé X » sous le statut, « Corriger » devient l'action principale (« Marquer envoyée » passe dans le menu), et le circuit l'annonce au lieu de « toutes envoyées ».
 - Les motifs (annulation, correction) et les écarts (montant signé + motif) se saisissent dans un bandeau `--brick-tint` sous la ligne concernée, jamais dans une fenêtre du navigateur.
 - L'historique des corrections (originaux, avoirs) est replié en bas de page.
 
