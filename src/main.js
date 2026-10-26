@@ -5448,9 +5448,9 @@ const app = createApp({
                         type="button"
                         :class="['att-button', { locked: isAttendanceLocked(row.entityType, row.entityId, week), correctable: Boolean(lockedAttendanceAction(row.entityType, row.entityId, week)), saving: isAttendanceSaving(row.entityType, row.entityId, week) }]"
                         :disabled="!can('PRESENCE_WRITE') || isAttendanceSaving(row.entityType, row.entityId, week) || (isAttendanceLocked(row.entityType, row.entityId, week) && !lockedAttendanceAction(row.entityType, row.entityId, week))"
-                        :aria-label="attendanceCellLabel(row, week) + ({ correct: ', corriger après facturation', cancel: ', situation à annuler pour corriger' }[lockedAttendanceAction(row.entityType, row.entityId, week)] || '')"
+                        :aria-label="attendanceCellLabel(row, week) + ({ correct: ', corriger après facturation', cancel: ', situation pas encore marquée envoyée' }[lockedAttendanceAction(row.entityType, row.entityId, week)] || '')"
                         :aria-haspopup="lockedAttendanceAction(row.entityType, row.entityId, week) ? 'dialog' : undefined"
-                        :title="attendanceCellTitle(row, week) + ({ correct: ' · cliquer pour corriger', cancel: ' · situation validée : l’annuler pour corriger' }[lockedAttendanceAction(row.entityType, row.entityId, week)] || '')"
+                        :title="attendanceCellTitle(row, week) + ({ correct: ' · cliquer pour corriger', cancel: ' · situation validée mais pas envoyée : la marquer envoyée (si payée) ou l’annuler pour corriger' }[lockedAttendanceAction(row.entityType, row.entityId, week)] || '')"
                         @click="onAttendanceCell(row, week)"
                       >
                         <span :class="['att-glyph', attendanceStatus(row.entityType, row.entityId, week).toLowerCase()]" aria-hidden="true"></span>
@@ -7231,7 +7231,7 @@ const app = createApp({
                   </span>
                 </label>
                 <p v-if="attendanceCorrection.weeks.some(item => !item.correctable)" class="correction-note">
-                  Une situation seulement validée (non envoyée) n’a pas encore été payée : annulez-la dans Facturation → Prestataires, corrigez les présences, puis émettez-la de nouveau.
+                  Les séances grisées appartiennent à une situation validée mais pas marquée envoyée. Dans Facturation → Prestataires (trimestre de la situation) : si le professeur a déjà été payé, « Marquer envoyée » puis revenez ici ; sinon « Annuler… » la situation, corrigez les présences et émettez-la de nouveau.
                 </p>
               </fieldset>
 
