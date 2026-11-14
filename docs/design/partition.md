@@ -91,8 +91,10 @@ Le logotype texte s'écrit « Compta *Zik* » en Instrument Serif 28 px, « Zik 
 - Rayons : 4 (barres), 8–10 (champs, cellules, items de navigation), 12 (petites cartes, boîte utilisateur), 16 (cartes principales), 999 (boutons, pastilles, contrôles segmentés).
 - Bordures : 1 px `--line` sur les cartes. **Pas d'ombre portée** sur les cartes ; `--shadow-overlay` uniquement pour modales et menus, posées sur le fond `--scrim`.
 - Hauteur des contrôles : 44 px minimum (cible tactile), 48 px pour l'action principale d'un en-tête. Les contrôles compacts des maquettes (filtres, pastilles d'icône, boutons de ligne, 32 à 40 px) gardent leur taille à la souris et passent à 44 px sur pointeur tactile (`@media (pointer: coarse)`).
-- Espacements sur une base de 4 : 8, 12, 16, 20, 24, 36, 48. Page desktop : 36 px haut/bas, 48 px côtés. Écart entre cartes : 16 px.
+- Espacements sur une base de 4 : 8, 12, 16, 20, 24, 32, 36, 48. Page desktop : 36 px haut/bas, 48 px côtés. Écart entre cartes d'une même rangée : 16 px ; entre les sections empilées d'un écran : 32 px.
+- Cette échelle vaut pour la mise en page (page, cartes, sections, padding des cartes). À l'intérieur d'un composant dense (lignes de tableau, pastilles, tuiles, cellules, libellés empilés), les demi-pas des maquettes sont admis : 2, 6, 10, 14, 18, 22 px (par exemple padding vertical 14 px des lignes de tableau, tuile KPI 20 × 22). Une nouvelle valeur hors de ces deux listes doit venir d'une maquette.
 - Barre latérale : 248 px de large.
+- Points de rupture : **1240** (colonnes latérales passées sous le contenu), **1100** (fiches sur deux colonnes), **980** (en-tête compact et barre d'onglets à la place de la barre latérale), **760** (mobile : une colonne, libellés abrégés). Aucun autre seuil ; un composant qui doit se compacter le fait à 760 px. Les règles d'écran qui ne doivent pas toucher l'impression sont écrites `@media screen and (…)`.
 
 ### Mouvement
 
@@ -320,7 +322,7 @@ Les noms d'élèves et les montants des maquettes sont **fictifs** ; seuls les n
 Travailler sur une branche `feat/da-partition`, un commit par étape :
 
 1. Vendoriser les trois familles de polices dans `src/vendor/` (+ licences) et les déclarer dans `index.html`.
-2. Intégrer `tokens.css` en tête de `src/styles.css` ; remplacer progressivement les couleurs en dur par les variables. Les alias de transition (`--accent`, `--surface`…) permettent de garder l'existant fonctionnel pendant la migration.
+2. Intégrer `tokens.css` en tête de `src/styles.css` ; remplacer progressivement les couleurs en dur par les variables. Les alias de transition (`--accent`, `--surface`…) ont permis de garder l'existant fonctionnel pendant la migration ; ils sont retirés depuis (un test empêche leur retour).
 3. Barre latérale (nouvelle structure + thème clair), puis boîte utilisateur.
 4. Tableau de bord : tuiles KPI, graphique, répartition, activité des prestataires.
 5. Grille de présences.
