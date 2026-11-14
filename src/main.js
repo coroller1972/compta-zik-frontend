@@ -4482,13 +4482,17 @@ const app = createApp({
     }
 
     function auditActionLabel(action) {
-      return { CREATED: "Création", UPDATED: "Modification", DELETED: "Suppression", SETTINGS_UPDATED: "Configuration modifiée", STATUS_CHANGED: "Cycle modifié", RESTORED: "Sauvegarde restaurée", SENT: "Document envoyé", CANCELLED: "Document annulé", CORRECTED: "Document corrigé" }[action] || action;
+      return { CREATED: "Création", UPDATED: "Modification", DELETED: "Suppression", SETTINGS_UPDATED: "Configuration modifiée", STATUS_CHANGED: "Cycle modifié", RESTORED: "Sauvegarde restaurée", IMPORTED: "Import JSON", SENT: "Document envoyé", CANCELLED: "Document annulé", CORRECTED: "Document corrigé" }[action] || action;
     }
 
     function auditUserLabel(event) {
-      if (!event?.userId) return "Système";
+      if (!event?.userId || event.userId === "system") return "Système";
       if (event.userId === currentUser.value?.id) return currentUser.value.displayName || currentUser.value.username;
-      return event.userId;
+      const knownUser = authUsers.value.find((user) => user.id === event.userId);
+      if (knownUser) return knownUser.displayName || knownUser.username;
+      // Nom affiché au moment de l'action : informatif, l'identifiant reste la référence.
+      const recordedName = event.details?.actorDisplayName;
+      return recordedName ? `${recordedName} (${event.userId.slice(0, 8)})` : event.userId;
     }
 
     selectGroup(selectedGroupId.value);
