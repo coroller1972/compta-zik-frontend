@@ -101,22 +101,9 @@
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   /* Pas d'ombres portées dans Partition : filets fins uniquement.
-     --shadow reste défini pour les surcouches (modales, menus). */
+     --shadow-overlay est réservé aux surcouches (modales, menus). */
   --shadow-overlay: 0 18px 40px rgba(19, 38, 44, 0.14);
   --scrim: rgba(7, 22, 27, 0.55);  /* fond derrière une modale */
-
-  /* ---- Alias de transition vers les noms utilisés aujourd'hui dans src/styles.css ----
-     Ils permettent de basculer la palette sans tout réécrire d'un coup.
-     --nav n'est volontairement PAS aliasé : la barre latérale actuelle écrit du texte
-     blanc sur --nav ; elle doit être restylée en même temps (voir partition.md). */
-  --surface: var(--paper);
-  --panel: var(--card);
-  --muted: var(--ink-muted);
-  --accent: var(--petrol);
-  --accent-soft: var(--petrol-tint);
-  --warning: var(--brass);
-  --danger: var(--brick);
-  --shadow: none;
 }
 
 /* Thème nuit — automatique, sauf si l'utilisateur a forcé le clair.
@@ -176,7 +163,8 @@
   }
 }
 
-/* Thème nuit — forcé (écran uniquement) */
+/* Thème nuit — forcé (écran uniquement). Copie exacte du bloc précédent : sans étape de build,
+   CSS ne permet pas de partager les déclarations ; tests/design-tokens.test.mjs vérifie l'égalité. */
 @media screen {
   :root[data-theme="dark"] {
     color-scheme: dark;
