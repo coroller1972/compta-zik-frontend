@@ -2,6 +2,7 @@ FROM registry.access.redhat.com/ubi9/nginx-124:latest
 
 USER 0
 COPY nginx.conf /opt/app-root/etc/nginx.default.d/default.conf
+COPY security-headers.inc /opt/app-root/etc/security-headers.inc
 COPY index.html /opt/app-root/src/index.html
 COPY src /opt/app-root/src/src
 

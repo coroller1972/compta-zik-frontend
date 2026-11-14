@@ -85,6 +85,8 @@ metadata:
   name: compta-zik-frontend
   labels:
     app: compta-zik-frontend
+  annotations:
+    haproxy.router.openshift.io/hsts_header: max-age=31536000;includeSubDomains
 spec:
   host: compta-zik-frontend-ui-core.apps.dev-app-hub.0k6e.p1.openshiftapps.com
   to:
