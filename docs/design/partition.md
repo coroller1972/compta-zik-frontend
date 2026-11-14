@@ -89,10 +89,14 @@ Le logotype texte s'écrit « Compta *Zik* » en Instrument Serif 28 px, « Zik 
 ## 4. Formes et espacements
 
 - Rayons : 4 (barres), 8–10 (champs, cellules, items de navigation), 12 (petites cartes, boîte utilisateur), 16 (cartes principales), 999 (boutons, pastilles, contrôles segmentés).
-- Bordures : 1 px `--line` sur les cartes. **Pas d'ombre portée** sur les cartes ; `--shadow-overlay` uniquement pour modales et menus.
-- Hauteur des contrôles : 44 px minimum (cible tactile), 48 px pour l'action principale d'un en-tête.
+- Bordures : 1 px `--line` sur les cartes. **Pas d'ombre portée** sur les cartes ; `--shadow-overlay` uniquement pour modales et menus, posées sur le fond `--scrim`.
+- Hauteur des contrôles : 44 px minimum (cible tactile), 48 px pour l'action principale d'un en-tête. Les contrôles compacts des maquettes (filtres, pastilles d'icône, boutons de ligne, 32 à 40 px) gardent leur taille à la souris et passent à 44 px sur pointeur tactile (`@media (pointer: coarse)`).
 - Espacements sur une base de 4 : 8, 12, 16, 20, 24, 36, 48. Page desktop : 36 px haut/bas, 48 px côtés. Écart entre cartes : 16 px.
 - Barre latérale : 248 px de large.
+
+### Mouvement
+
+Discret et fonctionnel, jamais décoratif. Jetons : `--duration-fast` (120 ms : survol, focus, sélection), `--duration` (200 ms : dépliage d'une fiche, apparition d'un toast ou d'un dialogue), `--ease`. Les contrôles changent de couleur en `--duration-fast` ; une fiche dépliée, un toast et un dialogue apparaissent en fondu avec un glissement de 4 px. `prefers-reduced-motion: reduce` neutralise toute animation, transition et défilement animé.
 
 ## 5. Composants
 
@@ -162,6 +166,17 @@ Fond `--brass-tint`, texte `--brass-tint-ink`, rayon 12. Réservé aux actions e
 ### Tableaux
 
 En-tête 12/700 majuscules `--ink-faint`, séparé du corps par un filet `--line-strong`. Lignes séparées par `--line`, padding vertical 14 px. Montants alignés à droite. « À facturer » en `--brass-ink` gras. Avancement : rail 6 px `--rail`, remplissage `--petrol`.
+
+### Dialogue de confirmation
+
+Toute confirmation passe par ce dialogue (`askConfirmation` dans `src/main.js`), **jamais** par `window.confirm`. `<dialog>` natif ouvert en modale : carte `--card`, rayon 16, `--shadow-overlay`, fond `--scrim`, largeur 440 px max. Sur-titre mono facultatif (période concernée), titre display 24 px formulé en question, conséquence en une phrase `--ink-muted`. Actions à droite : « Annuler » secondaire, puis le verbe de l'action (« Supprimer », « Valider la situation »…) en principal, ou en danger pour une suppression ou un abandon de modifications ; le focus initial va sur « Annuler » pour un danger, sur l'action sinon. Échap et un clic sur le fond annulent.
+
+### États vides, chargement, désactivé
+
+- **Vide** : message centré `--ink-muted`, précédé d'une petite portée (cinq filets `--line`, 72 px). Le message dit ce qui manque et, si possible, comment y remédier.
+- **Valeur absente dans une liste** (pas de cours, aucun groupe, montant nul, facture pas encore générée) : tiret `—` estompé (`--ink-faint`), accompagné d'un texte masqué pour les lecteurs d'écran. Seules les lignes qui portent une valeur ressortent.
+- **Chargement** : le bandeau d'état (« Calcul comptable en cours… ») porte un rail de progression indéterminé de 3 px en `--petrol`.
+- **Désactivé** : bouton principal ou danger sur fond `--rail`, texte `--ink-muted` ; bouton secondaire en contour `--line`. Pas d'opacité réduite sur une action pétrole.
 
 ### Toast
 
@@ -261,6 +276,17 @@ Même principe pour les deux écrans : une barre d'outils (recherche en pilule, 
 - Les motifs (annulation, correction) et les écarts (montant signé + motif) se saisissent dans un bandeau `--brick-tint` sous la ligne concernée, jamais dans une fenêtre du navigateur.
 - L'historique des corrections (originaux, avoirs) est replié en bas de page.
 
+### Écrans de réglages (Configuration, Import / Export, Compte)
+
+Une carte `.panel` par sujet, empilées avec 16 px d'écart.
+
+- **En-tête de carte** : titre h2 (ui 20/700) et sous-titre 13 px `--ink-muted`, filet `--line` dessous. À droite, seulement les actions qui ne dépendent d'aucune saisie : « Nouveau … », « Actualiser », « Exporter », « Créer une sauvegarde », le changement de statut d'année, le choix du thème.
+- **Formulaire** : il se termine par sa barre d'actions, **en bas à gauche**, comme les fiches Musiciens et Dépenses : action principale nommée par son effet (« Enregistrer les paramètres », « Changer le mot de passe », « Vérifier l'archive »), puis l'éventuelle action secondaire. Une action qui dépend d'une saisie n'est jamais dans l'en-tête.
+- **Champs dimensionnés au contenu** : montants, durées, années et semaines sur des colonnes de 180 à 220 px (et non sur toute la largeur), alignées sur leur bas quand un libellé passe sur deux lignes ; valeurs en mono pour les semaines.
+- **Pas de fond gris emboîté** dans une carte : les sous-parties (trimestres, récapitulatif 2FA, avatar, archives) sont séparées par des filets `--line`. Un récapitulatif se lit comme une liste de définitions : libellé 13 px `--ink-muted`, valeur 15/700.
+- **Encarts** : `--petrol-tint` pour une information, `--brass-tint` pour une action à faire, `--brick-tint` pour un risque (restauration, import qui remplace les données).
+- **Listes de fichiers** (archives) : une ligne par fichier, nom en mono comme lien de téléchargement, date et taille en `--ink-muted`, séparées par des filets.
+
 ### Émargement mobile (390 px)
 
 Saisie rapide des présences d'une journée :
@@ -269,6 +295,7 @@ Saisie rapide des présences d'une journée :
 - Barre d'action : « 2 sur 3 séances renseignées » + indicateur « Enregistré automatiquement » (chaque choix est enregistré aussitôt, comme dans la grille : pas de bouton « Enregistrer »).
 - Barre d'onglets en bas : Tableau, Présences, Émargement, Plus. « Plus » ouvre la barre latérale en plein écran (navigation complète, saison, compte, déconnexion).
 - Mise en page mobile sous 980 px : en-tête compact (logotype + avatar vers Compte), barre d'onglets, émargement par jour à la place des feuilles imprimables (qui restent l'affichage desktop et l'impression).
+- Sous 760 px, les libellés s'abrègent : trimestres « T1 / T2 / T3 » (contrôle segmenté et graphique), période « T3 · S38 → S51 », aide de la grille « Toucher : présent → absent → annulé ». Le libellé complet reste lu par les lecteurs d'écran. La légende des présences tient sur une ligne qui défile.
 
 ## 7. Mode nuit
 
