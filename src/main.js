@@ -214,12 +214,25 @@ function weeksForTerm(term) {
   return Array.from({ length: term.endWeek - term.startWeek + 1 }, (_, index) => term.startWeek + index);
 }
 
+// Intl sépare les milliers par une espace fine insécable (U+202F) : 3 px à 40 px dans
+// Instrument Serif, donc « 11 811,00 € » se lisait « 11811,00 € » sur les montants en
+// majesté. On la remplace par l'espace insécable ordinaire (U+00A0), lisible dans les trois polices.
+const NUMBER_FORMATS = {
+  money: new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }),
+  hours: new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }),
+  whole: new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }),
+};
+
+function readableSpaces(text) {
+  return text.replace(/\u202F/g, "\u00A0");
+}
+
 function money(value) {
-  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(value || 0);
+  return readableSpaces(NUMBER_FORMATS.money.format(value || 0));
 }
 
 function hoursLabel(value) {
-  return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format(Number(value) || 0)} h`;
+  return `${readableSpaces(NUMBER_FORMATS.hours.format(Number(value) || 0))} h`;
 }
 
 function isoWeekNumber(value) {
@@ -811,23 +824,23 @@ const app = createApp({
       slotsSelection.value = null;
     }
 
-    function newCourseAt(day, time) {
-      if (!startNewMusician()) return;
+    async function newCourseAt(day, time) {
+      if (!(await startNewMusician())) return;
       activeView.value = "people";
       Object.assign(musicianForm, { hasIndividualCourse: true, weekday: day, startTime: time });
       slotsSelection.value = null;
     }
 
-    function newGroupAt(day, time) {
-      if (!confirmDiscardChanges(groupFormDirty.value)) return;
+    async function newGroupAt(day, time) {
+      if (!(await confirmDiscardChanges(groupFormDirty.value))) return;
       activeView.value = "groups";
       resetGroupForm();
       Object.assign(groupForm, { weekday: day, startTime: time });
       slotsSelection.value = null;
     }
 
-    function openBandInGroups(bandId) {
-      if (bandId !== selectedGroupId.value && !confirmDiscardChanges(groupFormDirty.value)) return;
+    async function openBandInGroups(bandId) {
+      if (bandId !== selectedGroupId.value && !(await confirmDiscardChanges(groupFormDirty.value))) return;
       activeView.value = "groups";
       selectGroup(bandId);
     }
@@ -1054,6 +1067,36 @@ const app = createApp({
     const ATTENDANCE_STATUS_WORDS = { PRESENT: "présent", ABSENT: "absent", CANCELLED: "annulé", UNRECORDED: "non renseigné" };
 
     // Correction de présences déjà rémunérées (situation prestataire envoyée) : dialogue avec aperçu calculé par le backend.
+    // Confirmation dans la page (partition.md §5 « Dialogue de confirmation ») : jamais window.confirm.
+    const confirmation = reactive({ open: false, eyebrow: "", title: "", message: "", confirmLabel: "Confirmer", tone: "primary" });
+    const confirmationDialog = ref(null);
+    let resolveConfirmation = null;
+
+    function askConfirmation({ eyebrow = "", title, message = "", confirmLabel = "Confirmer", tone = "primary" }) {
+      resolveConfirmation?.(false);
+      Object.assign(confirmation, { open: true, eyebrow, title, message, confirmLabel, tone });
+      nextTick(() => {
+        const dialog = confirmationDialog.value;
+        if (dialog && !dialog.open) dialog.showModal();
+      });
+      return new Promise((resolve) => {
+        resolveConfirmation = resolve;
+      });
+    }
+
+    function settleConfirmation(answer) {
+      const resolve = resolveConfirmation;
+      resolveConfirmation = null;
+      confirmation.open = false;
+      if (confirmationDialog.value?.open) confirmationDialog.value.close();
+      resolve?.(answer);
+    }
+
+    function onConfirmationClick(event) {
+      // Le dialogue n'a pas de marge intérieure : un clic sur lui-même est un clic sur le fond.
+      if (event.target === confirmationDialog.value) settleConfirmation(false);
+    }
+
     const attendanceCorrection = reactive({
       open: false,
       entityType: "",
@@ -1401,8 +1444,11 @@ const app = createApp({
       ].filter((tab) => tab.visible);
     });
 
+    // Un nouvel écran s'ouvre en haut, titre visible. Les ouvertures ciblées (fiche musicien,
+    // dépense…) défilent ensuite vers leur ligne via revealListItem, après le rendu.
     watch(activeView, () => {
       mobileMenuOpen.value = false;
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     });
     watch(selectedTermId, () => {
       dayEntryWeek.value = null;
@@ -1423,6 +1469,17 @@ const app = createApp({
       const end = firstDayOfBusinessWeek(year, term.endWeek);
       end.setDate(end.getDate() + 6);
       return `${term.name} · semaines ${term.startWeek} à ${term.endWeek} · ${TERM_DAY_FORMAT.format(start)} → ${TERM_DAY_FORMAT.format(end)}`;
+    });
+
+    // Versions courtes pour mobile (≤ 760 px) : « T3 », « T3 · S38 → S51 ».
+    function shortTermName(term) {
+      const number = String(term?.name || "").match(/(\d+)\s*$/);
+      return number ? `T${number[1]}` : term?.name || "";
+    }
+
+    const termEyebrowShort = computed(() => {
+      const term = selectedTerm.value;
+      return term ? `${shortTermName(term)} · S${term.startWeek} → S${term.endWeek}` : "";
     });
 
     function attendanceCellLabel(row, week) {
@@ -1610,7 +1667,7 @@ const app = createApp({
     }
 
     function wholeEuros(value) {
-      return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(Number(value) || 0));
+      return readableSpaces(NUMBER_FORMATS.whole.format(Math.round(Number(value) || 0)));
     }
 
     const expenseRows = computed(() => [...state.expenses].sort((a, b) => (
@@ -1744,6 +1801,36 @@ const app = createApp({
       return user?.id ? authUserAvatarUrls[user.id] || "" : "";
     }
     const mustChangePassword = computed(() => Boolean(currentUser.value?.mustChangePassword));
+    // Sur-titre des écrans hors trimestre : une information utile plutôt qu'un slogan.
+    const SHORT_DATE = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+    const plural = (count, singular, pluralForm) => `${count} ${count > 1 ? pluralForm : singular}`;
+    const pageEyebrow = computed(() => {
+      const year = state.settings.year;
+      const status = yearStatusLabel.value.toLowerCase();
+      switch (activeView.value) {
+        case "slots":
+          return `Saison ${year} · semaine type de la salle`;
+        case "groups":
+          return `Saison ${year} · ${plural(workshopBands.value.length, "atelier", "ateliers")} · ${plural(independentBands.value.length, "groupe musical", "groupes musicaux")}`;
+        case "expenses":
+          return yearClosed.value ? "Année clôturée · dépenses verrouillées" : `Année ${status} · dépenses modifiables`;
+        case "settings":
+          return `Saison ${year} · ${status}`;
+        case "data-transfer": {
+          const latest = backupFiles.value
+            .map((backup) => new Date(backup.createdAt))
+            .filter((date) => !Number.isNaN(date.getTime()))
+            .sort((a, b) => b - a)[0];
+          if (latest) return `Dernière archive sur le serveur : ${SHORT_DATE.format(latest)}`;
+          return backupListLoaded.value ? "Aucune archive sur le serveur" : "Sauvegardes et échanges de données";
+        }
+        case "account":
+          return currentUser.value?.username ? `Identifiant : ${currentUser.value.username}` : "Profil, apparence et sécurité";
+        default:
+          return `Saison ${year}`;
+      }
+    });
+
     const pageTitle = computed(() => {
       const labels = {
         dashboard: `Saison ${state.settings.year}`,
@@ -2185,8 +2272,14 @@ const app = createApp({
       await setAttendanceStatus(entityType, entityId, week, next);
     }
 
-    function confirmDiscardChanges(dirty) {
-      return !dirty || window.confirm("Des modifications ne sont pas enregistrées. Les abandonner ?");
+    async function confirmDiscardChanges(dirty) {
+      if (!dirty) return true;
+      return askConfirmation({
+        title: "Abandonner les modifications ?",
+        message: "Les modifications de cette fiche ne sont pas enregistrées.",
+        confirmLabel: "Abandonner",
+        tone: "danger",
+      });
     }
 
     function resetMusicianForm() {
@@ -2210,8 +2303,8 @@ const app = createApp({
       musicianFormSnapshot.value = JSON.stringify(musicianForm);
     }
 
-    function startNewMusician() {
-      if (!confirmDiscardChanges(musicianFormDirty.value)) return false;
+    async function startNewMusician() {
+      if (!(await confirmDiscardChanges(musicianFormDirty.value))) return false;
       resetMusicianForm();
       musicianFormOpen.value = true;
       if (musicianFilter.value === "archived") musicianFilter.value = "all";
@@ -2230,7 +2323,8 @@ const app = createApp({
         const anchor = (rowId && document.getElementById(rowId)) || panel;
         if (!panel || !anchor) return;
         if (anchor.getBoundingClientRect().top < 0 || panel.getBoundingClientRect().bottom > window.innerHeight) {
-          anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          anchor.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
         }
       });
     }
@@ -2322,14 +2416,14 @@ const app = createApp({
       if (editingTeacherId.value === teacherId) resetTeacherForm();
     }
 
-    function editMusician(musician) {
+    async function editMusician(musician) {
       if (!can("MUSICIENS_WRITE")) return;
       // Un second clic sur la ligne ouverte replie la fiche, sauf modifications en cours.
       if (musicianFormOpen.value && editingMusicianId.value === musician.id) {
         if (!musicianFormDirty.value) resetMusicianForm();
         return;
       }
-      if (!confirmDiscardChanges(musicianFormDirty.value)) return;
+      if (!(await confirmDiscardChanges(musicianFormDirty.value))) return;
       loadMusicianForm(musician);
       activeView.value = "people";
       revealMusicianSheet(musician.id);
@@ -2564,13 +2658,13 @@ const app = createApp({
       groupFormSnapshot.value = JSON.stringify(groupForm);
     }
 
-    function pickGroup(groupId) {
-      if (groupId !== selectedGroupId.value && !confirmDiscardChanges(groupFormDirty.value)) return;
+    async function pickGroup(groupId) {
+      if (groupId !== selectedGroupId.value && !(await confirmDiscardChanges(groupFormDirty.value))) return;
       selectGroup(groupId);
     }
 
-    function startNewGroup() {
-      if (!confirmDiscardChanges(groupFormDirty.value)) return;
+    async function startNewGroup() {
+      if (!(await confirmDiscardChanges(groupFormDirty.value))) return;
       resetGroupForm();
     }
 
@@ -2656,7 +2750,12 @@ const app = createApp({
       if (!can("GROUPS_WRITE")) return;
       if (!ensureStructureMutable()) return;
       const band = state.bands.find((item) => item.id === groupId);
-      if (!window.confirm(`Supprimer définitivement « ${band?.name || "ce groupe"} » ?`)) return;
+      if (!(await askConfirmation({
+        title: `Supprimer « ${band?.name || "ce groupe"} » ?`,
+        message: "La suppression est définitive.",
+        confirmLabel: "Supprimer",
+        tone: "danger",
+      }))) return;
       state.bands = state.bands.filter((band) => band.id !== groupId);
       state.attendance = state.attendance.filter((entry) => !(entry.entityType === "workshop" && entry.entityId === groupId));
       await requestResource("DELETE", `bands/${groupId}`, null, {
@@ -2687,22 +2786,22 @@ const app = createApp({
       expenseFormSnapshot.value = JSON.stringify(expenseForm);
     }
 
-    function startNewExpense() {
+    async function startNewExpense() {
       if (!can("EXPENSES_WRITE")) return;
-      if (!confirmDiscardChanges(expenseFormDirty.value)) return;
+      if (!(await confirmDiscardChanges(expenseFormDirty.value))) return;
       resetExpenseForm();
       expenseFormOpen.value = true;
       revealListItem("expense-form", null);
     }
 
-    function editExpense(expense) {
+    async function editExpense(expense) {
       if (!can("EXPENSES_WRITE")) return;
       // Un second clic sur la ligne ouverte replie le formulaire, sauf modifications en cours.
       if (expenseFormOpen.value && editingExpenseId.value === expense.id) {
         if (!expenseFormDirty.value) resetExpenseForm();
         return;
       }
-      if (!confirmDiscardChanges(expenseFormDirty.value)) return;
+      if (!(await confirmDiscardChanges(expenseFormDirty.value))) return;
       editingExpenseId.value = expense.id;
       expenseFormOpen.value = true;
       Object.assign(expenseForm, {
@@ -2755,7 +2854,12 @@ const app = createApp({
       if (!can("EXPENSES_DELETE")) return;
       if (!ensureYearNotClosed("Les dépenses sont verrouillées")) return;
       const expense = state.expenses.find((item) => item.id === expenseId);
-      if (!window.confirm(`Supprimer définitivement la dépense « ${expense?.label || ""} » ?`)) return;
+      if (!(await askConfirmation({
+        title: `Supprimer la dépense « ${expense?.label || ""} » ?`,
+        message: "La suppression est définitive.",
+        confirmLabel: "Supprimer",
+        tone: "danger",
+      }))) return;
       const deleted = await requestResource("DELETE", `expenses/${expenseId}`, null, {
         successMessage: "Dépense supprimée",
         errorMessage: "Dépense non supprimée côté backend",
@@ -2833,7 +2937,12 @@ const app = createApp({
 
     async function finalizeAllStudentInvoices() {
       if (!can("BILLING_PRINT") || !ensureYearNotClosed("La validation est verrouillée")) return;
-      if (!window.confirm("Valider définitivement toutes les factures élèves de ce trimestre ? Elles ne pourront plus être régénérées.")) return;
+      if (!(await askConfirmation({
+        eyebrow: `${selectedTerm.value.name} ${state.settings.year}`,
+        title: "Valider toutes les factures élèves ?",
+        message: "La validation est définitive : les factures ne pourront plus être régénérées.",
+        confirmLabel: "Valider définitivement",
+      }))) return;
       const documents = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/student-invoices/finalize`, null, {
         successMessage: "Factures élèves validées définitivement",
         errorMessage: "Validation définitive impossible",
@@ -2847,7 +2956,11 @@ const app = createApp({
       const teacherName = teacher ? fullName(teacher) : "ce prestataire";
       const draft = draftForTeacher(teacherId);
       if (!draft) return;
-      if (!window.confirm(`Valider la situation n°${draft.installmentNumber || 1} de ${teacherName} ? Les présences incluses seront verrouillées.`)) return;
+      if (!(await askConfirmation({
+        title: `Valider la situation n°${draft.installmentNumber || 1} de ${teacherName} ?`,
+        message: "Les présences incluses seront verrouillées.",
+        confirmLabel: "Valider la situation",
+      }))) return;
       const document = await requestResource("POST", `accounting-years/${state.settings.year}/terms/${selectedTerm.value.id}/teacher-invoice-requests/${teacherId}/finalize`, { documentId: draft.id, version: draft.version }, {
         successMessage: `Situation de ${teacherName} validée`,
         errorMessage: "Validation définitive impossible",
@@ -2907,7 +3020,11 @@ const app = createApp({
     }
 
     async function deleteTeacherAdjustment(adjustment) {
-      if (!window.confirm("Supprimer cette régularisation en attente ?")) return;
+      if (!(await askConfirmation({
+        title: "Supprimer cette régularisation en attente ?",
+        confirmLabel: "Supprimer",
+        tone: "danger",
+      }))) return;
       const result = await requestResource("DELETE", `teacher-adjustments/${adjustment.id}`, null, { successMessage: "Régularisation supprimée", errorMessage: "Suppression impossible" });
       if (result !== undefined) await loadBillingSummary();
     }
@@ -2925,7 +3042,12 @@ const app = createApp({
       const count = studentInvoicesToSend.value.length;
       const year = state.settings.year;
       const term = selectedTerm.value;
-      if (!window.confirm(`Après transmission du PDF global, marquer les ${count} facture(s) individuelle(s) validée(s) de ${term.name} ${year} comme envoyées ?`)) return;
+      if (!(await askConfirmation({
+        eyebrow: `${term.name} ${year}`,
+        title: count > 1 ? `Marquer les ${count} factures validées comme envoyées ?` : "Marquer la facture validée comme envoyée ?",
+        message: "À faire après la transmission du PDF global.",
+        confirmLabel: "Marquer envoyées",
+      }))) return;
       markingStudentInvoicesSent.value = true;
       try {
         const updated = await requestResource("POST", `accounting-years/${year}/terms/${term.id}/student-invoices/sent`, null, {
@@ -2942,7 +3064,10 @@ const app = createApp({
     }
 
     async function markDocumentSent(document) {
-      if (!window.confirm(`Marquer ${document.documentNumber || 'ce document'} comme envoyé ?`)) return;
+      if (!(await askConfirmation({
+        title: `Marquer ${document.documentNumber || "ce document"} comme envoyé ?`,
+        confirmLabel: "Marquer envoyé",
+      }))) return;
       const updated = await requestResource("POST", `documents/${document.id}/sent`, null, { successMessage: "Document marqué comme envoyé", errorMessage: "Transition impossible" });
       if (updated) replaceLoadedDocument(updated);
     }
@@ -2993,9 +3118,11 @@ const app = createApp({
 
     async function updateYearStatus(status) {
       if (!can("CONFIG_TERMS") || status === yearStatus.value) return;
-      if (status === "CLOSED" && !window.confirm(
-        `Clôturer définitivement l'année ${state.settings.year} ? Les présences, dépenses et émissions seront verrouillées.`,
-      )) return;
+      if (status === "CLOSED" && !(await askConfirmation({
+        title: `Clôturer l'année ${state.settings.year} ?`,
+        message: "La clôture est définitive : les présences, dépenses et émissions seront verrouillées.",
+        confirmLabel: "Clôturer l'année",
+      }))) return;
       const savedSettings = await requestResource(
         "PUT",
         `accounting-years/${state.settings.year}/status`,
@@ -3253,6 +3380,11 @@ const app = createApp({
 
     function billingMoney(value) {
       return billingStatus.value === "ready" ? money(value) : "—";
+    }
+
+    // Montant nul une fois les montants chargés : affiché en tiret estompé dans les listes.
+    function isZeroAmount(value) {
+      return billingStatus.value === "ready" && !Number(value);
     }
 
     function resourceAffectsBilling(method, resource) {
@@ -4027,7 +4159,12 @@ const app = createApp({
 
     async function deleteAuthUser(user) {
       if (!canAdminUsers.value) return;
-      const confirmed = window.confirm(`Supprimer définitivement ${user.displayName || user.username} ?`);
+      const confirmed = await askConfirmation({
+        title: `Supprimer ${user.displayName || user.username} ?`,
+        message: "Le compte est anonymisé ; l'opération est définitive.",
+        confirmLabel: "Supprimer",
+        tone: "danger",
+      });
       if (!confirmed) return;
       try {
         const response = await apiFetch(`auth/users/${user.id}?mode=anonymize`, {
@@ -4493,6 +4630,9 @@ const app = createApp({
       authUserInitials,
       authUserAvatarUrl,
       pageTitle,
+      pageEyebrow,
+      shortTermName,
+      termEyebrowShort,
       openAccountView,
       openBilling,
       billingTab,
@@ -4552,6 +4692,7 @@ const app = createApp({
       copyAnnualConfiguration,
       updateYearStatus,
       billingMoney,
+      isZeroAmount,
       studentTotal,
       selectedImportFile,
       importAnalysis,
@@ -4645,6 +4786,10 @@ const app = createApp({
       isAttendanceSaving,
       toggleAttendance,
       attendanceCorrection,
+      confirmation,
+      confirmationDialog,
+      settleConfirmation,
+      onConfirmationClick,
       attendanceCorrectionSelection,
       canCorrectAfterBilling,
       lockedAttendanceAction,
@@ -5202,8 +5347,8 @@ const app = createApp({
         <header class="topbar">
           <div class="topbar-title">
             <p v-if="activeView === 'dashboard'" class="eyebrow">Situation consolidée au {{ dashboardDateLabel }}</p>
-            <p v-else-if="viewUsesTerm && termEyebrow" class="eyebrow">{{ termEyebrow }}</p>
-            <p v-else class="eyebrow">Comptabilité activité musique</p>
+            <p v-else-if="viewUsesTerm && termEyebrow" class="eyebrow"><span class="label-full">{{ termEyebrow }}</span><span class="label-short" aria-hidden="true">{{ termEyebrowShort }}</span></p>
+            <p v-else class="eyebrow">{{ pageEyebrow }}</p>
             <h1>{{ pageTitle }}</h1>
           </div>
           <div class="topbar-actions">
@@ -5218,7 +5363,7 @@ const app = createApp({
                 :aria-pressed="term.selected ? 'true' : 'false'"
                 @click="selectedTermId = term.id"
               >
-                {{ term.name }}
+                <span class="label-full">{{ term.name }}</span><span class="label-short" aria-hidden="true">{{ shortTermName(term) }}</span>
                 <span v-if="term.phase === 'current'" class="segmented-dot" aria-hidden="true"></span>
                 <span v-if="term.phase === 'current'" class="visually-hidden">(en cours)</span>
               </button>
@@ -5244,7 +5389,7 @@ const app = createApp({
         </header>
 
         <section v-if="activeView === 'dashboard' && !mustChangePassword" class="view-stack dashboard-view">
-          <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error' }" role="status">
+          <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error', loading: billingStatus === 'loading' }" role="status">
             <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Connectez le backend pour charger les montants comptables.') }}</span>
             <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
           </div>
@@ -5292,7 +5437,7 @@ const app = createApp({
               <div class="staff-terms" :style="{ '--terms': dashboardTerms.length, gridTemplateColumns: '52px repeat(' + dashboardTerms.length + ', minmax(0, 1fr))' }">
                 <span></span>
                 <div v-for="term in dashboardTerms" :key="term.id" class="staff-term">
-                  <strong>{{ term.name }}</strong>
+                  <strong><span class="label-full">{{ term.name }}</span><span class="label-short" aria-hidden="true">{{ shortTermName(term) }}</span></strong>
                   <span>S{{ term.startWeek }} → S{{ term.endWeek }}</span>
                   <em :class="term.phase">{{ DASHBOARD_PHASE_LABELS[term.phase] }}</em>
                 </div>
@@ -5398,7 +5543,7 @@ const app = createApp({
               <li><span class="legend-hatch" aria-hidden="true"></span>Vacances (saisie possible)</li>
               <li><svg class="att-lock" aria-hidden="true"><use href="#icon-lock"></use></svg>Facturée</li>
             </ul>
-            <span v-if="can('PRESENCE_WRITE')" class="attendance-hint">Un clic fait défiler : présent → absent → annulé</span>
+            <span v-if="can('PRESENCE_WRITE')" class="attendance-hint"><span class="label-full">Un clic fait défiler : </span><span class="label-short" aria-hidden="true">Toucher : </span>présent → absent → annulé</span>
           </div>
 
           <section class="attendance-card" aria-label="Grille des présences du trimestre">
@@ -5807,13 +5952,14 @@ const app = createApp({
                         {{ courseSummary(item.row.musician) }}
                         <small>{{ courseTimeLabel(item.row.course) }}</small>
                       </template>
-                      <span v-else class="muted">Pas de cours</span>
+                      <span v-else class="blank"><span aria-hidden="true">—</span><span class="visually-hidden">Pas de cours</span></span>
                     </span>
                     <span class="band-chips">
                       <span v-for="band in item.row.bands" :key="band.id" :class="['band-chip', band.type]">{{ band.name }}</span>
-                      <span v-if="!item.row.bands.length" class="muted">Aucun groupe</span>
+                      <span v-if="!item.row.bands.length" class="blank"><span aria-hidden="true">—</span><span class="visually-hidden">Aucun groupe</span></span>
                     </span>
-                    <span class="musician-due num">{{ billingMoney(item.row.totalDue) }}</span>
+                    <span v-if="isZeroAmount(item.row.totalDue)" class="musician-due num blank"><span aria-hidden="true">—</span><span class="visually-hidden">Rien à payer</span></span>
+                    <span v-else class="musician-due num">{{ billingMoney(item.row.totalDue) }}</span>
                   </component>
                 </li>
                 <li v-else id="musician-editor-panel" class="inline-sheet">
@@ -6211,7 +6357,7 @@ const app = createApp({
             <span v-if="yearClosed" class="billing-locked">Année clôturée : émission verrouillée</span>
           </div>
 
-          <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error' }" role="status">
+          <div v-if="billingStatus !== 'ready'" class="billing-state" :class="{ error: billingStatus === 'error', loading: billingStatus === 'loading' }" role="status">
             <span>{{ billingStatus === 'loading' ? 'Calcul comptable en cours…' : (billingError || 'Calcul comptable non chargé.') }}</span>
             <button v-if="billingStatus === 'error'" class="ghost-button" @click="loadBillingSummary">Réessayer</button>
           </div>
@@ -6270,13 +6416,12 @@ const app = createApp({
             <section class="repertoire-card billing-students" aria-label="Factures élèves">
               <div class="billing-toolbar">
                 <input v-model="billingStudentSearch" class="search" type="search" placeholder="Rechercher un élève" aria-label="Rechercher un élève" />
-                <div class="toggle-chips" role="group" aria-label="Filtrer par étape">
-                  <button type="button" class="toggle-chip" :aria-pressed="billingStudentFilter === 'all' ? 'true' : 'false'" @click="billingStudentFilter = 'all'">Toutes<small>{{ studentInvoiceItems.length }}</small></button>
+                <div class="segmented repertoire-filters" role="group" aria-label="Filtrer par étape">
+                  <button type="button" :aria-pressed="billingStudentFilter === 'all' ? 'true' : 'false'" @click="billingStudentFilter = 'all'">Toutes<small>{{ studentInvoiceItems.length }}</small></button>
                   <button
                     v-for="step in studentInvoiceSteps"
                     :key="step.key"
                     type="button"
-                    class="toggle-chip"
                     :aria-pressed="billingStudentFilter === step.key ? 'true' : 'false'"
                     @click="billingStudentFilter = step.key"
                   >{{ step.label }}<small>{{ step.count }}</small></button>
@@ -6299,7 +6444,8 @@ const app = createApp({
                     </span>
                     <span class="billing-status">
                       <span v-if="item.step !== 'NONE'" :class="['doc-pill', item.document.status.toLowerCase()]">{{ documentStatusLabel(item.document.status) }}</span>
-                      <span v-else class="muted">{{ item.document ? documentStatusLabel(item.document.status) + ' · à régénérer' : 'Non générée' }}</span>
+                      <span v-else-if="item.document" class="muted">{{ documentStatusLabel(item.document.status) + ' · à régénérer' }}</span>
+                      <span v-else class="blank"><span aria-hidden="true">—</span><span class="visually-hidden">Non générée</span></span>
                       <small v-if="item.document?.documentNumber && item.step !== 'NONE' && item.step !== 'DRAFT'">{{ item.document.documentNumber }}</small>
                       <small v-if="item.mismatch" class="billing-mismatch">Écart : facturé {{ billingMoney(item.billedAmount) }}</small>
                     </span>
@@ -6481,23 +6627,24 @@ const app = createApp({
             </div>
             <p class="muted">Les documents, leurs statuts, les présences facturées, les ajustements et le journal d’audit sont inclus. Une archive est créée automatiquement avant chaque import ou restauration.</p>
             <p v-if="transferBusy" role="status">Opération en cours…</p>
-            <div class="panel-head">
-              <h3>Archives disponibles sur le serveur</h3>
-              <button class="ghost-button" @click="loadBackups" :disabled="transferBusy">Actualiser</button>
+            <div class="settings-subsection">
+              <div class="settings-subsection-head">
+                <h3>Archives disponibles sur le serveur</h3>
+                <button class="ghost-button" @click="loadBackups" :disabled="transferBusy">Actualiser</button>
+              </div>
+              <p v-if="backupListLoaded && !backupFiles.length" class="muted">Aucune sauvegarde ZIP disponible.</p>
+              <ul v-if="backupFiles.length" class="backup-list">
+                <li v-for="backup in backupFiles" :key="backup.fileName">
+                  <button type="button" class="link-button backup-file" @click="downloadBackup(backup.fileName)" :aria-label="'Télécharger ' + backup.fileName">{{ backup.fileName }}</button>
+                  <small>{{ new Date(backup.createdAt).toLocaleString('fr-FR') }} · {{ (backup.sizeBytes / 1024 / 1024).toFixed(2) }} Mio</small>
+                </li>
+              </ul>
             </div>
-            <p v-if="backupListLoaded && !backupFiles.length" class="muted">Aucune sauvegarde ZIP disponible.</p>
-            <ul v-if="backupFiles.length" class="backup-list">
-              <li v-for="backup in backupFiles" :key="backup.fileName">
-                <button class="ghost-button" @click="downloadBackup(backup.fileName)">{{ backup.fileName }}</button>
-                <small>{{ new Date(backup.createdAt).toLocaleString('fr-FR') }} · {{ (backup.sizeBytes / 1024 / 1024).toFixed(2) }} Mio</small>
-              </li>
-            </ul>
           </section>
 
           <section class="panel">
             <div class="panel-head">
               <div><h2>Restaurer une sauvegarde complète</h2><span>Rétablit les données et les PDF sans recalculer les factures</span></div>
-              <button class="primary-button" @click="analyzeRestore" :disabled="!selectedRestoreFile || transferBusy">Vérifier l’archive</button>
             </div>
             <label class="premium-file-picker">
               <input class="visually-hidden-file" type="file" accept="application/zip,.zip" @change="selectRestoreFile" :disabled="transferBusy" />
@@ -6505,6 +6652,9 @@ const app = createApp({
               <span class="premium-file-name">{{ selectedRestoreFile?.name || 'Aucune archive sélectionnée' }}</span>
             </label>
             <p class="form-help">ZIP de 64 Mio maximum, créé avec cette version du schéma. La vérification ne modifie aucune donnée.</p>
+            <div class="form-actions">
+              <button class="primary-button" @click="analyzeRestore" :disabled="!selectedRestoreFile || transferBusy">Vérifier l’archive</button>
+            </div>
             <div v-if="restoreAnalysis?.valid" class="import-analysis">
               <strong>Archive vérifiée · {{ restoreAnalysis.documents }} documents · {{ restoreAnalysis.pdfs }} PDF</strong>
               <p class="form-warning">La restauration remplacera toutes les données métier. Le journal d’audit existant sera conservé et complété.</p>
@@ -6533,7 +6683,6 @@ const app = createApp({
                 <h2>Import JSON</h2>
                 <span>Analyse obligatoire avant le remplacement des données</span>
               </div>
-              <button class="primary-button" @click="analyzeImport" :disabled="!selectedImportFile || transferBusy" :title="selectedImportFile ? '' : 'Sélectionnez d’abord un fichier JSON.'">Analyser le fichier</button>
             </div>
             <div class="premium-file-row">
               <label class="premium-file-picker">
@@ -6546,6 +6695,9 @@ const app = createApp({
               </small>
             </div>
             <p class="form-warning">Aucune donnée n’est modifiée pendant l’analyse. L’import final remplacera toutes les données métier dans une transaction unique.</p>
+            <div class="form-actions">
+              <button class="primary-button" @click="analyzeImport" :disabled="!selectedImportFile || transferBusy">Analyser le fichier</button>
+            </div>
 
             <div v-if="importAnalysis" class="import-analysis" :class="{ invalid: !importAnalysis.valid }">
               <div class="import-analysis-head">
@@ -6574,9 +6726,8 @@ const app = createApp({
             <div class="panel-head">
               <div>
                 <h2>Profil</h2>
-                <span>{{ currentUser?.username }}</span>
+                <span>Nom, coordonnées et avatar</span>
               </div>
-              <button class="primary-button" @click="saveProfile">Enregistrer</button>
             </div>
             <div class="account-profile">
               <div class="account-avatar">
@@ -6606,6 +6757,11 @@ const app = createApp({
               </div>
             </div>
             <div class="form-actions">
+              <button class="primary-button" @click="saveProfile">Enregistrer le profil</button>
+            </div>
+            <div class="settings-subsection">
+            <h3>Avatar</h3>
+            <div class="form-actions avatar-actions">
               <label class="premium-file-picker avatar-file-picker">
                 <input class="visually-hidden-file" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatarFile" />
                 <span class="premium-file-button">Choisir une image</span>
@@ -6615,6 +6771,7 @@ const app = createApp({
               <button class="ghost-button danger-button" @click="deleteAvatar" :disabled="!currentUser?.avatar" :title="currentUser?.avatar ? '' : 'Aucun avatar enregistré à supprimer.'">Supprimer l'avatar</button>
             </div>
             <p class="form-help" :class="{ ready: avatarFile }">{{ avatarFile ? 'Cliquez sur « Changer l’avatar » pour recadrer la photo avant de l’envoyer.' : 'Choisissez une image PNG, JPEG ou WebP (10 Mo maximum).' }}</p>
+            </div>
           </section>
 
           <section v-if="!mustChangePassword" class="panel appearance-panel">
@@ -6740,7 +6897,6 @@ const app = createApp({
                 <h2>Mot de passe</h2>
                 <span>Modification de la session courante</span>
               </div>
-              <button class="primary-button" @click="changePassword" :disabled="!isPasswordChangeReady" :title="isPasswordChangeReady ? '' : passwordChangeHelp">Changer</button>
             </div>
             <p v-if="mustChangePassword" class="form-warning password-required-note">Ce compte utilise un mot de passe temporaire. Choisis un nouveau mot de passe pour continuer.</p>
             <div class="password-grid">
@@ -6765,7 +6921,7 @@ const app = createApp({
               </label>
               <label class="field-toggle">
                 Sessions
-                <span class="check-label">
+                <span class="check-label bare">
                   <input type="checkbox" v-model="passwordForm.revokeOtherSessions" />
                   Révoquer les sessions existantes
                 </span>
@@ -6831,14 +6987,17 @@ const app = createApp({
                 {{ passwordForm.confirmPassword ? 'Confirmation identique' : 'Confirmez le nouveau mot de passe' }}
               </div>
             </div>
-            <p class="form-help password-action-help" :class="{ ready: isPasswordChangeReady }" aria-live="polite">{{ passwordChangeHelp }}</p>
+            <div class="form-actions password-actions">
+              <button class="primary-button" @click="changePassword" :disabled="!isPasswordChangeReady">Changer le mot de passe</button>
+              <p class="form-help password-action-help" :class="{ ready: isPasswordChangeReady }" aria-live="polite">{{ passwordChangeHelp }}</p>
+            </div>
           </section>
 
           <section v-if="!mustChangePassword && (canCreateUsers || canAdminUsers)" class="panel">
             <div class="panel-head">
               <div>
                 <h2>Administration utilisateurs</h2>
-                <span>{{ authUsersPage.total || authUsers.length }} comptes</span>
+                <span>{{ countLabel(authUsersPage.total || authUsers.length, 'compte') }}</span>
               </div>
               <button class="ghost-button" @click="loadAuthAdministration">Actualiser</button>
             </div>
@@ -7014,15 +7173,20 @@ const app = createApp({
                 <span>Copier groupes, adhésions, cours, tarifs et trimestres sans modifier l'année source</span>
               </div>
             </div>
-            <div class="api-form">
+            <div class="form-grid numeric">
               <label>
                 Année source
                 <input type="number" v-model.number="copySourceYear" min="2000" max="2100" />
               </label>
-              <strong>→ {{ state.settings.year }}</strong>
+              <label>
+                Année cible
+                <input type="number" :value="state.settings.year" disabled />
+              </label>
+            </div>
+            <p class="form-help">La copie est autorisée uniquement si l'année cible ne contient encore aucun groupe ni cours individuel.</p>
+            <div class="form-actions">
               <button class="primary-button" @click="copyAnnualConfiguration">Copier la configuration</button>
             </div>
-            <p class="muted">La copie est autorisée uniquement si l'année cible ne contient encore aucun groupe ni cours individuel.</p>
           </section>
           <section v-if="can('CONFIG_TEACHER')" class="panel">
             <div class="panel-head">
@@ -7048,7 +7212,7 @@ const app = createApp({
               </label>
               <label class="field-toggle">
                 Statut
-                <span class="check-label">
+                <span class="check-label bare">
                   <input type="checkbox" v-model="teacherForm.active" />
                   Actif
                 </span>
@@ -7098,11 +7262,10 @@ const app = createApp({
             <div class="panel-head">
               <div>
                 <h2>Paramètres financiers</h2>
-                <span>Configuration numérique</span>
+                <span>Tarifs et durées de l'année {{ state.settings.year }}</span>
               </div>
-              <button class="primary-button" @click="saveSettings">Enregistrer</button>
             </div>
-            <div class="form-grid">
+            <div class="form-grid numeric">
               <label>
                 Taux horaire par défaut
                 <input type="number" v-model.number="state.settings.teacherHourlyRate" min="0" step="0.5" />
@@ -7119,14 +7282,18 @@ const app = createApp({
                 Durée d’un atelier (heures)
                 <input type="number" v-model.number="state.settings.workshopHours" min="0.01" max="24" step="0.05" :disabled="yearStatus !== 'OPEN'" />
               </label>
-
+            </div>
+            <div class="form-actions">
+              <button class="primary-button" @click="saveSettings">Enregistrer les paramètres</button>
             </div>
           </section>
 
           <section v-if="can('CONFIG_TERMS')" class="panel">
             <div class="panel-head">
-              <h2>Trimestres</h2>
-              <span>Semaines numériques modifiables</span>
+              <div>
+                <h2>Trimestres</h2>
+                <span>Semaine de début et de fin de chaque trimestre</span>
+              </div>
             </div>
             <div class="term-grid">
               <article v-for="term in state.settings.terms" :key="term.id">
@@ -7326,6 +7493,17 @@ const app = createApp({
           Plus
         </button>
       </nav>
+      <dialog ref="confirmationDialog" class="confirm-dialog" aria-labelledby="confirm-title" :aria-describedby="confirmation.message ? 'confirm-message' : null" @cancel.prevent="settleConfirmation(false)" @click="onConfirmationClick">
+        <div v-if="confirmation.open" class="confirm-dialog-body">
+          <span v-if="confirmation.eyebrow" class="eyebrow">{{ confirmation.eyebrow }}</span>
+          <h2 id="confirm-title">{{ confirmation.title }}</h2>
+          <p v-if="confirmation.message" id="confirm-message">{{ confirmation.message }}</p>
+          <div class="confirm-actions">
+            <button type="button" class="ghost-button" :autofocus="confirmation.tone === 'danger'" @click="settleConfirmation(false)">Annuler</button>
+            <button type="button" :class="confirmation.tone === 'danger' ? 'danger-button' : 'primary-button'" :autofocus="confirmation.tone !== 'danger'" @click="settleConfirmation(true)">{{ confirmation.confirmLabel }}</button>
+          </div>
+        </div>
+      </dialog>
       <avatar-crop-dialog :file="avatarCropFile" :busy="avatarUploading" :error="avatarUploadError" @cancel="cancelAvatarCrop" @confirm="uploadAvatar"></avatar-crop-dialog>
     </main>
   `,

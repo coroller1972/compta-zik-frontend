@@ -95,9 +95,15 @@
   --control-height: 44px;    /* cible tactile minimale */
   --control-height-lg: 48px;
 
+  /* Mouvement : discret, jamais décoratif ; neutralisé par prefers-reduced-motion. */
+  --duration-fast: 120ms;    /* survol, focus, sélection */
+  --duration: 200ms;         /* dépliage d'une fiche, apparition d'un toast ou d'un dialogue */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
   /* Pas d'ombres portées dans Partition : filets fins uniquement.
      --shadow reste défini pour les surcouches (modales, menus). */
   --shadow-overlay: 0 18px 40px rgba(19, 38, 44, 0.14);
+  --scrim: rgba(7, 22, 27, 0.55);  /* fond derrière une modale */
 
   /* ---- Alias de transition vers les noms utilisés aujourd'hui dans src/styles.css ----
      Ils permettent de basculer la palette sans tout réécrire d'un coup.
@@ -164,8 +170,9 @@
     --att-cancelled: #8A9A9D;
     --att-unrecorded: #55666A;
     --att-current-week: rgba(224, 180, 90, 0.10);
-    --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+    --hatch: repeating-linear-gradient(135deg, #2E4148 0 3px, transparent 3px 6px);
     --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --scrim: rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -219,8 +226,9 @@
     --att-cancelled: #8A9A9D;
     --att-unrecorded: #55666A;
     --att-current-week: rgba(224, 180, 90, 0.10);
-    --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+    --hatch: repeating-linear-gradient(135deg, #2E4148 0 3px, transparent 3px 6px);
     --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --scrim: rgba(0, 0, 0, 0.6);
   }
 }
 

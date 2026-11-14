@@ -98,9 +98,15 @@
   --control-height: 44px;    /* cible tactile minimale */
   --control-height-lg: 48px;
 
+  /* Mouvement : discret, jamais décoratif ; neutralisé par prefers-reduced-motion. */
+  --duration-fast: 120ms;    /* survol, focus, sélection */
+  --duration: 200ms;         /* dépliage d'une fiche, apparition d'un toast ou d'un dialogue */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
   /* Pas d'ombres portées dans Partition : filets fins uniquement.
      --shadow reste défini pour les surcouches (modales, menus). */
   --shadow-overlay: 0 18px 40px rgba(19, 38, 44, 0.14);
+  --scrim: rgba(7, 22, 27, 0.55);  /* fond derrière une modale */
 
   /* ---- Alias de transition vers les noms utilisés aujourd'hui dans src/styles.css ----
      Ils permettent de basculer la palette sans tout réécrire d'un coup.
@@ -167,8 +173,9 @@
     --att-cancelled: #8A9A9D;
     --att-unrecorded: #55666A;
     --att-current-week: rgba(224, 180, 90, 0.10);
-    --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+    --hatch: repeating-linear-gradient(135deg, #2E4148 0 3px, transparent 3px 6px);
     --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --scrim: rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -222,8 +229,9 @@
     --att-cancelled: #8A9A9D;
     --att-unrecorded: #55666A;
     --att-current-week: rgba(224, 180, 90, 0.10);
-    --hatch: repeating-linear-gradient(135deg, #22323A 0 3px, transparent 3px 6px);
+    --hatch: repeating-linear-gradient(135deg, #2E4148 0 3px, transparent 3px 6px);
     --shadow-overlay: 0 18px 40px rgba(0, 0, 0, 0.45);
+    --scrim: rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -242,8 +250,9 @@ body {
 body {
   margin: 0;
   color: var(--ink);
-  background: var(--surface);
+  background: var(--paper);
   accent-color: var(--petrol);
+  font-size: 15px; /* corps et cellules de tableau, partition.md §3 */
 }
 
 button,
@@ -327,7 +336,7 @@ select:disabled {
   align-items: center;
   gap: 10px;
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: 24px;
   font-weight: 400;
 }
 
@@ -458,7 +467,7 @@ select:disabled {
   gap: 14px;
   padding: 16px 18px;
   border: 1px solid color-mix(in srgb, var(--petrol) 22%, transparent);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--petrol-tint);
   color: var(--petrol-tint-ink);
 }
@@ -516,7 +525,7 @@ select:disabled {
   place-items: center;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: #fff;
 }
 
@@ -549,7 +558,7 @@ select:disabled {
   margin-top: 8px;
   padding: 10px 12px;
   overflow-wrap: anywhere;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--card-alt);
   color: var(--ink);
   font-size: 13px;
@@ -599,7 +608,7 @@ select:disabled {
   aspect-ratio: 1 / 1.08;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   background: var(--card);
   color: var(--ink);
   font-size: 23px;
@@ -669,7 +678,7 @@ select:disabled {
 .recovery-code-grid li {
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--card);
   text-align: center;
 }
@@ -708,7 +717,7 @@ select:disabled {
 .status {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--warning);
 }
 
@@ -881,7 +890,7 @@ input[type="radio"] {
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow);
 }
 
@@ -911,6 +920,14 @@ input[type="radio"] {
 td small,
 .muted {
   color: var(--muted);
+}
+
+/* Valeur absente dans une liste (pas de cours, aucun groupe, montant nul…) : un tiret
+   estompé, pour que les lignes qui portent une valeur ressortent. Le sens reste lu par
+   les lecteurs d'écran grâce au texte masqué qui l'accompagne. */
+.blank {
+  color: var(--ink-faint);
+  opacity: 0.6;
 }
 
 table {
@@ -962,7 +979,7 @@ td small {
   justify-content: space-between;
   gap: 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 12px;
   background: var(--card-alt);
 }
@@ -987,7 +1004,7 @@ td small {
 
 .success-note {
   border: 1px solid var(--petrol-tint);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--accent-soft);
   color: var(--accent);
   padding: 10px 12px;
@@ -1245,7 +1262,7 @@ td small {
   height: 34px;
   transform: translateY(-50%);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: grid;
   place-items: center;
   background: transparent;
@@ -1274,7 +1291,7 @@ td small {
   top: 50%;
   width: 5px;
   height: 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: currentColor;
   transform: translate(-50%, -50%);
 }
@@ -1286,7 +1303,7 @@ td small {
   top: -5px;
   width: 2px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: currentColor;
   transform: rotate(45deg);
   transform-origin: center;
@@ -1295,7 +1312,7 @@ td small {
 .password-confirmation {
   align-self: start;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--card-alt);
   padding: 10px;
 }
@@ -1315,7 +1332,7 @@ td small {
   display: grid;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--card-alt);
   padding: 10px;
 }
@@ -1342,7 +1359,7 @@ td small {
 
 .password-bars span {
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--track);
 }
 
@@ -1359,7 +1376,7 @@ td small {
   width: 18px;
   height: 18px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: inline-grid;
   place-items: center;
   flex: 0 0 18px;
@@ -1448,7 +1465,7 @@ td small {
   align-items: center;
   gap: 7px;
   padding: 8px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 13px;
   font-weight: 800;
   white-space: nowrap;
@@ -1476,7 +1493,7 @@ td small {
   gap: 6px;
   padding: 16px 18px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--card-alt);
 }
 
@@ -1502,7 +1519,7 @@ td small {
   margin-top: 16px;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--card-alt);
 }
 
@@ -1635,7 +1652,7 @@ td small {
   align-items: center;
   min-height: 26px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--card-alt);
   color: var(--ink-soft);
   padding: 4px 9px;
@@ -1795,10 +1812,22 @@ td small {
   color: var(--ink);
 }
 
+/* État vide : une portée de cinq filets au-dessus du message, centré dans sa carte. */
 .empty-state {
   margin: 0;
-  color: var(--muted);
+  padding: 36px 24px;
+  color: var(--ink-muted);
+  text-align: center;
   align-self: center;
+}
+
+.empty-state::before {
+  content: "";
+  display: block;
+  width: 72px;
+  height: 17px;
+  margin: 0 auto 16px;
+  background: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px 4px);
 }
 
 .check-label {
@@ -2597,13 +2626,18 @@ button.user-identity:hover,
 }
 
 .topbar {
+  flex-wrap: wrap;
   align-items: flex-end;
-  gap: 24px;
+  gap: 16px 24px;
   margin: 0;
   padding: 36px 0 24px;
 }
 
+/* Le titre garde sa largeur naturelle ; quand la place manque (fenêtres de 980 à ~1250 px),
+   ce sont les actions qui passent dessous au lieu d'écraser le titre ou d'être coupées. */
 .topbar-title {
+  flex: 0 0 auto;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2643,8 +2677,16 @@ h2 {
 
 .topbar-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
+  gap: 12px 14px;
+}
+
+@media (min-width: 761px) {
+  .topbar-actions .segmented button,
+  .topbar-actions > button {
+    white-space: nowrap;
+  }
 }
 
 .term-control {
@@ -3398,12 +3440,12 @@ td strong {
   height: 6px;
   display: flex;
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: var(--radius-pill);
   background: var(--rail);
 }
 
 .provider-progress-track i {
-  border-radius: 3px;
+  border-radius: var(--radius-pill);
   background: var(--petrol);
 }
 
@@ -4010,7 +4052,7 @@ td strong {
 .slot-swatch {
   width: 14px;
   height: 14px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
 }
 
 .slot-swatch.course,
@@ -4276,7 +4318,7 @@ td strong {
 .slot-allocation h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 400;
 }
 
@@ -4502,7 +4544,7 @@ td strong {
   color: var(--ink);
   box-shadow: var(--shadow-overlay);
 }
-.avatar-crop-dialog::backdrop { background: rgba(7, 22, 27, 0.65); }
+.avatar-crop-dialog::backdrop { background: var(--scrim); }
 .avatar-crop-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .avatar-crop-heading h2 { margin: 4px 0 0; font-family: var(--font-display); font-size: 30px; font-weight: 400; letter-spacing: 0; }
 .avatar-crop-heading .eyebrow { margin: 0; }
@@ -4587,7 +4629,7 @@ td strong {
   .mfa-actions { align-items: stretch; flex-direction: column; }
   .mfa-actions button { width: 100%; }
   .totp-input-group { grid-template-columns: repeat(6, minmax(32px, 1fr)); gap: 6px; }
-  .totp-digit { border-radius: 7px; font-size: 20px; }
+  .totp-digit { border-radius: var(--radius-sm); font-size: 20px; }
 }
 
 .backup-list {
@@ -5260,7 +5302,7 @@ button.musician-row.selected:hover {
 
 .musician-sheet-title strong {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 400;
   line-height: 1.05;
 }
@@ -6596,7 +6638,7 @@ button.expense-row.selected:hover {
 .teacher-card-head h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 400;
   line-height: 1.05;
 }
@@ -6969,7 +7011,7 @@ button.expense-row.selected:hover {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: color-mix(in srgb, var(--ink) 45%, transparent);
+  background: var(--scrim);
 }
 
 .correction-dialog {
@@ -7001,7 +7043,7 @@ button.expense-row.selected:hover {
 .correction-head h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: 24px;
   font-weight: 400;
   line-height: 1.05;
 }
@@ -7175,5 +7217,456 @@ button.expense-row.selected:hover {
 
   .correction-week-doc {
     grid-column: 2;
+  }
+}
+
+/* Cible tactile de 44 px (partition.md §4) : les contrôles compacts des maquettes
+   (32 à 40 px) gardent leur taille à la souris et grandissent au doigt. */
+@media (pointer: coarse) {
+  .document-link,
+  .bucket-item button,
+  .segmented button,
+  .repertoire-filters button,
+  .toggle-chip,
+  .sheet-segmented button,
+  .small-button,
+  .reason-form input,
+  .teacher-emit select,
+  .situation-row .document-link,
+  .billing-toolbar .search,
+  .login-remember {
+    min-height: var(--control-height);
+  }
+
+  .icon-pill {
+    width: var(--control-height);
+    height: var(--control-height);
+  }
+}
+
+/* Dialogue de confirmation (partition.md §5) : remplace window.confirm. */
+.confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow-overlay);
+}
+
+.confirm-dialog::backdrop {
+  background: var(--scrim);
+}
+
+.confirm-dialog-body {
+  display: grid;
+  gap: 8px;
+  padding: 24px;
+}
+
+.confirm-dialog-body .eyebrow {
+  margin: 0;
+}
+
+.confirm-dialog-body h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+
+.confirm-dialog-body p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+@media (max-width: 760px) {
+  .confirm-actions > * {
+    flex: 1 1 auto;
+  }
+}
+
+/* Libellés courts sur mobile (trimestres « T3 », période, aide de la grille). Le libellé
+   complet reste lu par les lecteurs d'écran ; le court est aria-hidden. */
+.label-short {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .label-full {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .label-short {
+    display: inline;
+  }
+
+  /* Présences : la légende tient sur une ligne qui défile, l'aide sur une ligne.
+     min-width: 0, sinon la légende élargit toute la colonne de la page. */
+  .attendance-toolbar {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .attendance-legend {
+    min-width: 0;
+    width: 100%;
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+  }
+
+  .attendance-legend li {
+    flex: none;
+  }
+
+  .attendance-hint {
+    margin-left: 0;
+  }
+}
+
+/* ==== Mouvement (partition.md §4 « Mouvement ») ==== */
+.primary-button,
+.api-form button,
+.ghost-button,
+.danger-button,
+.danger-outline-button,
+.segmented button,
+.nav button,
+.toggle-chip,
+.small-button,
+.icon-pill,
+.action-button,
+.link-button {
+  transition:
+    background-color var(--duration-fast) var(--ease),
+    border-color var(--duration-fast) var(--ease),
+    color var(--duration-fast) var(--ease),
+    box-shadow var(--duration-fast) var(--ease);
+}
+
+select,
+input,
+textarea {
+  transition: border-color var(--duration-fast) var(--ease);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.inline-sheet,
+.toast {
+  animation: rise-in var(--duration) var(--ease);
+}
+
+.confirm-dialog[open],
+.avatar-crop-dialog[open] {
+  animation: rise-in var(--duration) var(--ease);
+}
+
+.confirm-dialog[open]::backdrop,
+.avatar-crop-dialog[open]::backdrop,
+.dialog-backdrop {
+  animation: fade-in var(--duration) var(--ease);
+}
+
+/* Calcul comptable en cours : rail de progression indéterminé (rail --rail, remplissage --petrol). */
+.billing-state.loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.billing-state.loading::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: linear-gradient(to right, transparent 0 35%, var(--petrol) 35% 65%, transparent 65%) no-repeat;
+  background-size: 200% 100%;
+  animation: rail-sweep 1.4s var(--ease) infinite;
+}
+
+@keyframes rail-sweep {
+  from {
+    background-position: 150% 0;
+  }
+
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/* État désactivé : surface neutre plutôt qu'une action pétrole délavée. */
+.primary-button:disabled,
+.api-form button:disabled,
+.danger-button:disabled,
+.danger-outline-button:disabled {
+  border-color: var(--rail);
+  background: var(--rail);
+  color: var(--ink-muted);
+  opacity: 1;
+}
+
+.ghost-button:disabled {
+  border-color: var(--line);
+  color: var(--ink-muted);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  ::backdrop {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+/* ==== Écrans de réglages (partition.md §6 « Écrans de réglages ») ==== */
+.form-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Montants, durées, années : colonnes à la mesure de la valeur, alignées sur leur bas
+   quand un libellé passe sur deux lignes. */
+.form-grid.numeric {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 220px));
+  align-items: end;
+}
+
+/* Trimestres : colonnes séparées par un filet, sans fond gris emboîté. */
+.term-grid {
+  gap: 0;
+}
+
+.term-grid article {
+  padding: 0 20px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+}
+
+.term-grid article:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.term-grid input {
+  max-width: 140px;
+}
+
+.settings-subsection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-subsection h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.settings-subsection-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.settings-subsection-head h3 {
+  margin: 0;
+}
+
+/* Archives : une ligne par fichier, nom en mono comme lien de téléchargement. */
+.backup-list {
+  gap: 0;
+}
+
+.backup-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.backup-list li:last-child {
+  border-bottom: 0;
+}
+
+.backup-file {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.backup-list small {
+  color: var(--ink-muted);
+}
+
+/* Récapitulatif 2FA : liste de définitions séparée par des filets. */
+.security-summary > div {
+  padding: 0 0 0 16px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+}
+
+.security-summary > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.security-summary span {
+  color: var(--ink-muted);
+}
+
+.security-summary strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.password-strength,
+.password-confirmation {
+  background: none;
+}
+
+.password-actions .password-action-help {
+  margin: 0;
+}
+
+/* Sous 980 px les trimestres s'empilent, sous 700 px le récapitulatif 2FA aussi :
+   le filet passe alors au-dessus de chaque bloc. */
+@media (max-width: 980px) {
+  .term-grid {
+    gap: 12px;
+  }
+
+  .term-grid article,
+  .term-grid article:first-child {
+    padding: 12px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .term-grid article:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .security-summary > div,
+  .security-summary > div:first-child {
+    padding: 12px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .security-summary > div:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+}
+
+/* Case à cocher seule dans un champ de réglage : pas de bloc gris dans une carte (partition.md §6). */
+.check-label.bare {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-weight: 500;
+}
+
+/* Œil du mot de passe : zone tactile de 44 px, pastille de survol de 34 px. */
+.password-input-wrap input {
+  padding-right: 48px;
+}
+
+.password-eye {
+  top: 0;
+  right: 0;
+  width: var(--control-height);
+  height: 100%;
+  padding: 5px;
+  transform: none;
+  background-clip: content-box;
+}
+
+/* Boîte utilisateur : laisser la place au nom affiché (cible de 44 px rendue au tactile). */
+.user-box {
+  gap: 6px;
+  padding: 8px;
+}
+
+.user-identity {
+  gap: 8px;
+}
+
+.user-avatar-wrap,
+.user-avatar {
+  width: 34px;
+  height: 34px;
+}
+
+.user-box .sidebar-icon-button {
+  width: 36px;
+}
+
+.user-copy strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+@media (pointer: coarse) {
+  .user-box .sidebar-icon-button {
+    width: var(--control-height);
   }
 }
